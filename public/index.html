@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Theory of Change</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --x-color: #2563EB;
+    --y-color: #7C3AED;
+    --strong: #16A34A;
+    --moderate: #D97706;
+    --weak: #DC2626;
+    --speculative: #9CA3AF;
+    --bg: #FAFAF8;
+    --text: #111827;
+    --muted: #6B7280;
+    --border: #E5E7EB;
+    --card: #FFFFFF;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    line-height: 1.5;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  /* ─── Header / Hero ─────────────────────────────── */
+  .hero {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 2rem 1.5rem 4rem;
+    transition: min-height 0.6s ease, padding 0.6s ease;
+    position: relative;
+  }
+
+  .hero.shrunk {
+    min-height: 0;
+    padding: 3rem 1.5rem 2rem;
+  }
+
+  .eyebrow {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 2.5rem;
+  }
+
+  .headline {
+    font-size: clamp(2rem, 5.5vw, 4.5rem);
+    font-weight: 300;
+    line-height: 1.25;
+    text-align: center;
+    max-width: 900px;
+    letter-spacing: -0.02em;
+  }
+
+  .headline .line {
+    display: block;
+  }
+
+  /* ─── Editable field ─────────────────────────────── */
+  .field-wrap {
+    display: inline-block;
+    position: relative;
+    vertical-align: baseline;
+  }
+
+  .field-wrap.x { color: var(--x-color); }
+  .field-wrap.y { color: var(--y-color); }
+
+  .field-wrap::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0; right: 0;
+    height: 3px;
+    background: currentColor;
+  }
+
+  .field {
+    display: inline-block;
+    min-width: 2ch;
+    max-width: min(480px, 55vw);
+    border: none;
+    background: transparent;
+    font: inherit;
+    font-size: inherit;
+    font-weight: 600;
+    outline: none;
+    padding: 0 2px;
+    text-align: center;
+    cursor: text;
+    transition: width 0.2s;
+    color: inherit;
+    vertical-align: baseline;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .field::placeholder {
+    font-family: 'Georgia', serif;
+    font-style: italic;
+    font-weight: 400;
+    opacity: 0.45;
+  }
+
+  .field-word {
+    font-weight: 600;
+    cursor: text;
+    padding: 0 2px 0 0;
+    transition: opacity 0.2s ease, max-width 0.25s ease, padding 0.25s ease;
+    max-width: 600px;
+    overflow: hidden;
+    display: inline;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
+  .field-wrap.typing .field-word {
+    opacity: 0;
+    max-width: 0;
+    padding: 0;
+  }
+
+  /* ─── Autocomplete dropdown ──────────────────────── */
+  .suggestions {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.10);
+    list-style: none;
+    z-index: 100;
+    width: 100%;
+    overflow: hidden;
+    display: none;
+  }
+
+  .suggestions.open { display: block; }
+
+  .suggestions li {
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 400;
+    color: var(--text);
+    transition: background 0.12s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .suggestions li:hover,
+  .suggestions li.active {
+    background: #F3F4F6;
+  }
+
+  .suggestions li mark {
+    background: none;
+    font-weight: 700;
+    color: inherit;
+  }
+
+  /* ─── CTA button ─────────────────────────────────── */
+  .cta-wrap {
+    margin-top: 3rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .cta {
+    background: var(--text);
+    color: #fff;
+    border: none;
+    border-radius: 100px;
+    padding: 0.85rem 2.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: -0.01em;
+    transition: transform 0.15s, box-shadow 0.15s, opacity 0.2s;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  }
+
+  .cta:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(0,0,0,0.20); }
+  .cta:active:not(:disabled) { transform: translateY(0); }
+  .cta:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .cta-hint { font-size: 0.8rem; color: var(--muted); }
+
+  /* ─── Results ────────────────────────────────────── */
+  #results {
+    display: none;
+    max-width: 860px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 0 1.5rem 6rem;
+  }
+
+  #results.visible { display: block; }
+
+  /* ─── Link diagram ───────────────────────────────── */
+  .diagram-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2.5rem 2rem;
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+
+  .diagram-svg {
+    width: 100%;
+    max-width: 640px;
+    overflow: visible;
+    display: block;
+    margin: 0 auto;
+  }
+
+  .strength-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+
+  .strength-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+  }
+
+  .diagram-summary {
+    margin-top: 1rem;
+    font-size: 0.95rem;
+    color: var(--muted);
+    max-width: 520px;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.6;
+  }
+
+  /* ─── Mechanisms ──────────────────────────────────── */
+  .mechanisms {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem 1.75rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .mechanisms h3 {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 1.25rem;
+  }
+
+  .mechanism-chain {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mechanism-node {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    position: relative;
+  }
+
+  .mechanism-node:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: 13px; /* center of 28px num circle */
+    top: 28px;
+    bottom: -1.5rem;
+    width: 2px;
+    background: repeating-linear-gradient(
+      to bottom,
+      #A5B4FC 0px, #A5B4FC 6px,
+      transparent 6px, transparent 10px
+    );
+  }
+
+  .mechanism-bubble {
+    flex: 1;
+    background: #F8F9FF;
+    border: 1.5px solid #C7D2FE;
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    color: var(--text);
+  }
+
+  .mechanism-num {
+    flex-shrink: 0;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: #EEF2FF;
+    border: 1.5px solid #C7D2FE;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #4F46E5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+  }
+
+  .mechanism-chain {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  /* ─── Evidence columns ───────────────────────────── */
+  .evidence-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+
+  @media (max-width: 640px) { .evidence-grid { grid-template-columns: 1fr; } }
+
+  .evidence-col {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem;
+  }
+
+  .evidence-col h3 {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .evidence-col.for h3 { color: var(--strong); }
+  .evidence-col.against h3 { color: var(--weak); }
+
+  .evidence-item {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .evidence-item:last-child { border-bottom: none; padding-bottom: 0; }
+  .evidence-item:first-child { padding-top: 0; }
+
+  .evidence-title {
+    font-size: 0.88rem;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+  }
+
+  .evidence-desc {
+    font-size: 0.84rem;
+    color: #374151;
+    line-height: 1.55;
+    margin-bottom: 0.3rem;
+  }
+
+  .evidence-source {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  /* ─── History ─────────────────────────────────────── */
+  .section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .section h3 {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 1rem;
+  }
+
+  /* ─── Timeline ───────────────────────────────────── */
+  .timeline {
+    position: relative;
+    padding: 0.5rem 0 0.25rem;
+  }
+
+  /* the continuous vertical spine */
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 72px;
+    top: 0; bottom: 0;
+    width: 2px;
+    background: linear-gradient(to bottom, transparent, var(--border) 8%, var(--border) 92%, transparent);
+  }
+
+  .tl-item {
+    display: flex;
+    gap: 0;
+    align-items: flex-start;
+    margin-bottom: 2rem;
+    position: relative;
+  }
+
+  .tl-item:last-child { margin-bottom: 0; }
+
+  /* period label — sits left of the spine */
+  .tl-period {
+    flex-shrink: 0;
+    width: 64px;
+    text-align: right;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--muted);
+    line-height: 1.3;
+    padding-top: 3px;
+    padding-right: 0;
+    letter-spacing: -0.01em;
+  }
+
+  /* dot on the spine */
+  .tl-dot {
+    flex-shrink: 0;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2.5px solid #A5B4FC;
+    margin: 2px 0 0 -1px; /* center on the 2px spine at left:72px */
+    position: relative;
+    z-index: 1;
+    flex-shrink: 0;
+    margin-left: 0;
+    margin-right: 0;
+    align-self: flex-start;
+  }
+
+  /* nudge: period(64px) + dot centered on spine(72px) => 8px gap */
+  .tl-dot { margin-left: 0; }
+
+  .tl-spacer { flex-shrink: 0; width: 8px; } /* 64 + 8 = 72 = spine left */
+
+  /* card to the right */
+  .tl-card {
+    flex: 1;
+    margin-left: 12px;
+    background: #FAFBFF;
+    border: 1px solid #E0E7FF;
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+  }
+
+  .tl-name {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 0.3rem;
+  }
+
+  .tl-outcome {
+    font-size: 0.84rem;
+    color: #374151;
+    line-height: 1.55;
+    margin-bottom: 0.35rem;
+  }
+
+  .tl-relevance {
+    font-size: 0.78rem;
+    color: #6366F1;
+    font-style: italic;
+    line-height: 1.45;
+  }
+
+  /* ─── Probing questions ──────────────────────────── */
+  .questions-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .questions-list li {
+    font-size: 0.92rem;
+    background: #F9FAFB;
+    border-radius: 10px;
+    border-left: 3px solid var(--y-color);
+    line-height: 1.55;
+    cursor: pointer;
+    overflow: hidden;
+    transition: background 0.15s;
+  }
+
+  .questions-list li:hover { background: #F3F4F6; }
+  .questions-list li.answered { background: #FDF9FF; border-left-color: var(--y-color); }
+
+  .q-text {
+    padding: 0.75rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .q-toggle {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 2px;
+    transition: transform 0.2s;
+  }
+
+  .questions-list li.open .q-toggle { transform: rotate(180deg); }
+
+  .q-answer-wrap {
+    display: none;
+    padding: 0 1rem 0.75rem;
+  }
+
+  .questions-list li.open .q-answer-wrap { display: block; }
+
+  .q-answer {
+    width: 100%;
+    min-height: 80px;
+    border: 1.5px solid #E0E7FF;
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    font: inherit;
+    font-size: 0.88rem;
+    color: var(--text);
+    background: #fff;
+    resize: vertical;
+    outline: none;
+    line-height: 1.55;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+  }
+
+  .q-answer:focus { border-color: var(--y-color); }
+  .q-answer::placeholder { color: #9CA3AF; }
+
+  .q-saved {
+    font-size: 0.72rem;
+    color: var(--y-color);
+    margin-top: 0.35rem;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .q-saved.visible { opacity: 1; }
+
+  /* ─── Assumptions ─────────────────────────────────── */
+  .assumptions-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .assumptions-list li {
+    font-size: 0.88rem;
+    color: #374151;
+    padding: 0.6rem 0.9rem;
+    border-radius: 8px;
+    background: #F9FAFB;
+    line-height: 1.5;
+    cursor: pointer;
+    user-select: none;
+    filter: blur(5px);
+    transition: filter 0.3s ease;
+  }
+
+  .assumptions-list li:hover,
+  .assumptions-list li.revealed {
+    filter: blur(0);
+  }
+
+  /* ─── Loading state ──────────────────────────────── */
+  .loading {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 3rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .loading.visible { display: flex; }
+
+  .spinner {
+    width: 20px; height: 20px;
+    border: 2px solid var(--border);
+    border-top-color: var(--text);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── Reset ──────────────────────────────────────── */
+  .reset-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 0.5rem 1.25rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    color: var(--muted);
+    transition: all 0.15s;
+    margin: 0 auto 2rem;
+    display: block;
+  }
+
+  .reset-btn:hover { border-color: var(--text); color: var(--text); }
+
+  /* ─── SVG nodes ──────────────────────────────────── */
+  .node-x { fill: #EFF6FF; stroke: var(--x-color); stroke-width: 2; }
+  .node-y { fill: #F5F3FF; stroke: var(--y-color); stroke-width: 2; }
+  .node-text-x { fill: var(--x-color); font-weight: 600; font-size: 13px; }
+  .node-text-y { fill: var(--y-color); font-weight: 600; font-size: 13px; }
+  .node-label { fill: #6B7280; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; }
+</style>
+</head>
+<body>
+
+<section class="hero" id="hero">
+  <p class="eyebrow">Theory of Change</p>
+
+  <h1 class="headline">
+    <span class="line">How will doing
+      <label class="field-wrap x" id="wrap-x" for="field-x">
+        <input
+          class="field"
+          id="field-x"
+          type="text"
+          placeholder="x"
+          autocomplete="off"
+          spellcheck="false"
+          size="12"
+        /><span class="field-word">action</span>
+        <ul class="suggestions" id="sug-x" role="listbox"></ul>
+      </label>
+    </span>
+    <span class="line">create
+      <label class="field-wrap y" id="wrap-y" for="field-y">
+        <input
+          class="field"
+          id="field-y"
+          type="text"
+          placeholder="y"
+          autocomplete="off"
+          spellcheck="false"
+          size="12"
+        /><span class="field-word">change</span>
+        <ul class="suggestions" id="sug-y" role="listbox"></ul>
+      </label>
+    </span>
+    <span class="line">in the world?</span>
+  </h1>
+
+  <div class="cta-wrap">
+    <button class="cta" id="analyze-btn" disabled>Explore this theory</button>
+    <span class="cta-hint">We'll find evidence, examples, and hard questions</span>
+  </div>
+</section>
+
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  Searching history, movements, and research…
+</div>
+
+<section id="results">
+  <button class="reset-btn" id="reset-btn">← Try another theory</button>
+
+  <!-- Visualization -->
+  <div class="diagram-wrap" id="diagram"></div>
+
+  <!-- Mechanisms -->
+  <div class="mechanisms" id="mechanisms-wrap">
+    <h3>How this could work — the causal chain</h3>
+    <div class="mechanism-chain" id="mechanisms-list"></div>
+  </div>
+
+  <!-- Evidence -->
+  <div class="evidence-grid">
+    <div class="evidence-col for">
+      <h3>▲ Evidence for</h3>
+      <div id="evidence-for"></div>
+    </div>
+    <div class="evidence-col against">
+      <h3>▼ Evidence against</h3>
+      <div id="evidence-against"></div>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="section" id="history-wrap">
+    <h3>Historical examples</h3>
+    <div class="timeline" id="history-list"></div>
+  </div>
+
+  <!-- Questions -->
+  <div class="section">
+    <h3>Questions to stress-test your theory</h3>
+    <ul class="questions-list" id="questions-list"></ul>
+  </div>
+
+  <!-- Assumptions -->
+  <div class="section">
+    <h3>Hidden assumptions this theory rests on</h3>
+    <ul class="assumptions-list" id="assumptions-list"></ul>
+  </div>
+</section>
+
+<script>
+// ─── Suggestion data ──────────────────────────────────────────────────────────
+const X_SUGGESTIONS = [
+  "organizing community action",
+  "reducing personal carbon footprint",
+  "teaching digital literacy",
+  "building mutual aid networks",
+  "running for local office",
+  "funding grassroots organizations",
+  "practicing nonviolent protest",
+  "starting worker cooperatives",
+  "conducting independent journalism",
+  "developing open source software",
+  "training the next generation",
+  "bridging political divides",
+  "boycotting harmful companies",
+  "creating inclusive art",
+  "reducing meat consumption",
+  "supporting local businesses",
+  "mentoring young people",
+  "building accessible technology",
+  "practicing restorative justice",
+  "sharing knowledge openly",
+  "lobbying elected officials",
+  "striking and collective bargaining",
+  "filing strategic lawsuits",
+  "building alternative institutions",
+  "growing your own food",
+  "divesting from fossil fuels",
+  "documenting injustice",
+  "practicing civil disobedience",
+  "creating free educational content",
+  "starting a social enterprise",
+];
+
+const Y_SUGGESTIONS = [
+  "climate stability",
+  "economic equality",
+  "racial justice",
+  "democratic participation",
+  "mental health improvement",
+  "education access for all",
+  "end of extreme poverty",
+  "gender equality",
+  "peace and conflict reduction",
+  "clean water access",
+  "food security",
+  "LGBTQ+ rights",
+  "criminal justice reform",
+  "housing stability",
+  "healthcare for all",
+  "freedom of information",
+  "animal welfare",
+  "immigrant rights",
+  "disability inclusion",
+  "political accountability",
+  "corporate accountability",
+  "press freedom",
+  "indigenous sovereignty",
+  "drug policy reform",
+  "child welfare",
+  "worker rights",
+  "biodiversity preservation",
+  "digital privacy",
+  "community resilience",
+  "reduced political polarization",
+];
+
+// ─── Autocomplete ─────────────────────────────────────────────────────────────
+function setupAutocomplete(inputEl, sugEl, data) {
+  let activeIdx = -1;
+
+  function filter(q) {
+    if (!q.trim()) return data.slice(0, 8);
+    const lq = q.toLowerCase();
+    return data.filter(s => s.toLowerCase().includes(lq)).slice(0, 8);
+  }
+
+  function render(items, q) {
+    sugEl.innerHTML = '';
+    activeIdx = -1;
+    if (!items.length) { sugEl.classList.remove('open'); return; }
+    items.forEach((item, i) => {
+      const li = document.createElement('li');
+      li.setAttribute('role', 'option');
+      li.innerHTML = highlight(item, q);
+      li.addEventListener('mousedown', e => { e.preventDefault(); pick(item); });
+      sugEl.appendChild(li);
+    });
+    sugEl.classList.add('open');
+  }
+
+  function highlight(text, q) {
+    if (!q) return text;
+    const idx = text.toLowerCase().indexOf(q.toLowerCase());
+    if (idx < 0) return text;
+    return text.slice(0, idx) + '<mark>' + text.slice(idx, idx + q.length) + '</mark>' + text.slice(idx + q.length);
+  }
+
+  function pick(value) {
+    inputEl.value = value;
+    autosize(inputEl);
+    sugEl.classList.remove('open');
+    checkReady();
+  }
+
+  function close() { sugEl.classList.remove('open'); activeIdx = -1; }
+
+  inputEl.addEventListener('input', () => {
+    autosize(inputEl);
+    const items = filter(inputEl.value);
+    render(items, inputEl.value);
+    checkReady();
+  });
+
+  inputEl.addEventListener('focus', () => {
+    autosize(inputEl);
+    const items = filter(inputEl.value);
+    if (items.length) render(items, inputEl.value);
+  });
+
+  inputEl.addEventListener('blur', () => setTimeout(close, 150));
+
+  inputEl.addEventListener('keydown', e => {
+    const items = sugEl.querySelectorAll('li');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeIdx = Math.min(activeIdx + 1, items.length - 1);
+      items.forEach((li, i) => li.classList.toggle('active', i === activeIdx));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIdx = Math.max(activeIdx - 1, -1);
+      items.forEach((li, i) => li.classList.toggle('active', i === activeIdx));
+    } else if (e.key === 'Enter') {
+      if (activeIdx >= 0 && items[activeIdx]) {
+        e.preventDefault();
+        pick(items[activeIdx].textContent);
+      }
+    } else if (e.key === 'Escape') {
+      close();
+    }
+  });
+}
+
+function autosize(el) {
+  const wrap = el.parentElement;
+  const tmp = document.createElement('span');
+  tmp.style.cssText = 'visibility:hidden;position:absolute;white-space:pre;font:inherit;font-size:' +
+    getComputedStyle(el).fontSize + ';font-weight:600;';
+  tmp.textContent = el.value || 'x';
+  document.body.appendChild(tmp);
+  const maxW = Math.min(480, window.innerWidth * 0.55);
+  const w = Math.min(Math.max(tmp.offsetWidth + 8, 20), maxW) + 'px';
+  el.style.width = w;
+  document.body.removeChild(tmp);
+
+  // set dropdown width to match the full underline (wrap) after layout
+  const sug = wrap.querySelector('.suggestions');
+  if (sug) requestAnimationFrame(() => { sug.style.width = wrap.offsetWidth + 'px'; });
+
+  // toggle typing state
+  wrap.classList.toggle('typing', el.value.length > 0);
+}
+
+const fieldX = document.getElementById('field-x');
+const fieldY = document.getElementById('field-y');
+const sugX   = document.getElementById('sug-x');
+const sugY   = document.getElementById('sug-y');
+const btn    = document.getElementById('analyze-btn');
+
+setupAutocomplete(fieldX, sugX, X_SUGGESTIONS);
+setupAutocomplete(fieldY, sugY, Y_SUGGESTIONS);
+autosize(fieldX); autosize(fieldY);
+
+function checkReady() {
+  btn.disabled = !fieldX.value.trim() || !fieldY.value.trim();
+}
+
+fieldX.addEventListener('input', checkReady);
+fieldY.addEventListener('input', checkReady);
+
+
+// ─── Strength colours ─────────────────────────────────────────────────────────
+function strengthColor(label) {
+  return { Strong: '#16A34A', Moderate: '#D97706', Weak: '#DC2626', Speculative: '#9CA3AF' }[label] || '#9CA3AF';
+}
+
+// ─── SVG text word-wrap ───────────────────────────────────────────────────────
+function svgLines(text, charsPerLine) {
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for (const w of words) {
+    if ((line + ' ' + w).trim().length > charsPerLine && line) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = (line + ' ' + w).trim();
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function svgWrappedText(text, x, cy, cls, charsPerLine = 16) {
+  const lines = svgLines(text, charsPerLine);
+  const lineH = 16;
+  const totalH = lines.length * lineH;
+  const startY = cy - totalH / 2 + lineH * 0.8;
+  return lines.map((l, i) =>
+    `<text x="${x}" y="${startY + i * lineH}" text-anchor="middle" class="${cls}">${l}</text>`
+  ).join('\n');
+}
+
+// ─── SVG Diagram ──────────────────────────────────────────────────────────────
+function buildDiagram(action, change, strength, label) {
+  const color = strengthColor(label);
+  const nw = 180;
+  const pad = 60;
+  const W = 640, H = 160;
+  const lx = pad, rx = W - nw - pad;
+  const cy = H / 2;
+  const startX = lx + nw + 8;
+  const endX = rx - 8;
+  const strokeW = Math.max(2, Math.round(strength / 100 * 14));
+  const dash = label === 'Speculative' ? '8 6' : label === 'Weak' ? '5 4' : 'none';
+  const midX = (startX + endX) / 2;
+  const gid = 'grad' + Date.now();
+
+  return `<svg class="diagram-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">
+  <defs>
+    <linearGradient id="${gid}" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2563EB" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0.8"/>
+    </linearGradient>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="${color}" opacity="0.9"/>
+    </marker>
+  </defs>
+
+  <!-- Action node -->
+  <rect x="${lx}" y="${cy - 50}" width="${nw}" height="100" rx="12" class="node-x"/>
+  <text x="${lx + nw/2}" y="${cy - 30}" text-anchor="middle" class="node-label">ACTION</text>
+  ${svgWrappedText(action, lx + nw/2, cy + 8, 'node-text-x')}
+
+  <!-- Change node -->
+  <rect x="${rx}" y="${cy - 50}" width="${nw}" height="100" rx="12" class="node-y"/>
+  <text x="${rx + nw/2}" y="${cy - 30}" text-anchor="middle" class="node-label">CHANGE</text>
+  ${svgWrappedText(change, rx + nw/2, cy + 8, 'node-text-y')}
+
+  <!-- Arrow -->
+  <line
+    x1="${startX}" y1="${cy}"
+    x2="${endX - 8}" y2="${cy}"
+    stroke="${color}" stroke-width="${strokeW}"
+    stroke-dasharray="${dash}"
+    stroke-linecap="round"
+    marker-end="url(#arrowhead)"
+    opacity="0.85"
+  />
+
+  <!-- Strength badge -->
+  <circle cx="${midX}" cy="${cy}" r="22" fill="white" stroke="${color}" stroke-width="2"/>
+  <text x="${midX}" y="${cy + 1}" text-anchor="middle" dominant-baseline="middle"
+    font-size="13" font-weight="700" fill="${color}">${strength}%</text>
+</svg>`;
+}
+
+function extractYear(period) {
+  const m = (period || '').match(/\d{4}/);
+  return m ? parseInt(m[0]) : 9999;
+}
+
+function truncate(str, max) {
+  return str.length > max ? str.slice(0, max - 1) + '…' : str;
+}
+
+// ─── Render results ───────────────────────────────────────────────────────────
+function renderResults(data, action, change) {
+  const color = strengthColor(data.strength_label);
+
+  // Diagram
+  document.getElementById('diagram').innerHTML = `
+    ${buildDiagram(action, change, data.strength, data.strength_label)}
+    <div class="strength-badge">
+      <span class="strength-dot" style="background:${color}"></span>
+      <span style="color:${color}">${data.strength_label} link</span>
+      <span style="color:#9CA3AF;font-weight:400"> — ${data.strength}/100</span>
+    </div>
+    <p class="diagram-summary">${data.summary}</p>
+  `;
+
+  // Mechanisms
+  const mEl = document.getElementById('mechanisms-list');
+  const steps = data.mechanisms || [];
+  mEl.innerHTML = steps.map((m, i) => `
+    <div class="mechanism-node">
+      <div class="mechanism-num">${i + 1}</div>
+      <div class="mechanism-bubble">${m}</div>
+    </div>
+  `).join('');
+
+  // Evidence for
+  document.getElementById('evidence-for').innerHTML = (data.evidence_for || []).map(e => `
+    <div class="evidence-item">
+      <div class="evidence-title">${e.title}</div>
+      <div class="evidence-desc">${e.description}</div>
+      <div class="evidence-source">${e.source}</div>
+    </div>
+  `).join('');
+
+  // Evidence against
+  document.getElementById('evidence-against').innerHTML = (data.evidence_against || []).map(e => `
+    <div class="evidence-item">
+      <div class="evidence-title">${e.title}</div>
+      <div class="evidence-desc">${e.description}</div>
+      <div class="evidence-source">${e.source}</div>
+    </div>
+  `).join('');
+
+  // History — timeline
+  const examples = (data.historical_examples || [])
+    .slice()
+    .sort((a, b) => extractYear(a.period) - extractYear(b.period));
+
+  document.getElementById('history-list').innerHTML = examples.map(h => `
+    <div class="tl-item">
+      <div class="tl-period">${h.period}</div>
+      <div class="tl-spacer"></div>
+      <div class="tl-dot"></div>
+      <div class="tl-card">
+        <div class="tl-name">${h.name}</div>
+        <div class="tl-outcome">${h.outcome}</div>
+        <div class="tl-relevance">${h.relevance}</div>
+      </div>
+    </div>
+  `).join('');
+
+  // Questions — interactive worksheet
+  const worksheetKey = `toc:${action}:${change}`;
+  const saved = JSON.parse(localStorage.getItem(worksheetKey) || '{}');
+
+  const qEl = document.getElementById('questions-list');
+  qEl.innerHTML = (data.probing_questions || []).slice(0, 3).map((q, i) => `
+    <li data-i="${i}">
+      <div class="q-text">
+        <span>${q}</span>
+        <span class="q-toggle">▾</span>
+      </div>
+      <div class="q-answer-wrap">
+        <textarea class="q-answer" placeholder="Write your answer…" rows="3">${saved[i] || ''}</textarea>
+        <div class="q-saved">Saved</div>
+      </div>
+    </li>
+  `).join('');
+
+  qEl.querySelectorAll('li').forEach(li => {
+    const i = li.dataset.i;
+    const ta = li.querySelector('.q-answer');
+    const savedMsg = li.querySelector('.q-saved');
+    if (saved[i]) li.classList.add('answered');
+
+    li.querySelector('.q-text').addEventListener('click', () => {
+      li.classList.toggle('open');
+      if (li.classList.contains('open')) ta.focus();
+    });
+
+    let saveTimer;
+    ta.addEventListener('input', () => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        const all = JSON.parse(localStorage.getItem(worksheetKey) || '{}');
+        all[i] = ta.value;
+        localStorage.setItem(worksheetKey, JSON.stringify(all));
+        li.classList.toggle('answered', !!ta.value);
+        savedMsg.classList.add('visible');
+        setTimeout(() => savedMsg.classList.remove('visible'), 1500);
+      }, 400);
+    });
+
+    ta.addEventListener('click', e => e.stopPropagation());
+  });
+
+  // Assumptions — blurred until hover/tap
+  const aEl = document.getElementById('assumptions-list');
+  aEl.innerHTML = (data.assumptions || []).map(a => `<li>${a}</li>`).join('');
+  aEl.querySelectorAll('li').forEach(li => {
+    li.addEventListener('click', () => li.classList.toggle('revealed'));
+  });
+}
+
+// ─── Robust JSON parser ───────────────────────────────────────────────────────
+function parseJSON(str) {
+  // First try straight parse
+  try { return JSON.parse(str); } catch (_) {}
+
+  // Close any truncated structure by counting unclosed brackets/braces
+  let fixed = str;
+  const opens = { '{': '}', '[': ']', '"': '"' };
+  const stack = [];
+  let inString = false;
+  for (let i = 0; i < fixed.length; i++) {
+    const c = fixed[i];
+    if (c === '\\' && inString) { i++; continue; }
+    if (c === '"') { inString = !inString; if (inString) stack.push('"'); else if (stack[stack.length-1] === '"') stack.pop(); continue; }
+    if (!inString) {
+      if (c === '{' || c === '[') stack.push(opens[c]);
+      else if ((c === '}' || c === ']') && stack[stack.length-1] === c) stack.pop();
+    }
+  }
+  // Close unclosed string first, then brackets
+  if (inString) fixed += '"';
+  while (stack.length) {
+    const top = stack.pop();
+    if (top !== '"') fixed += top;
+  }
+  try { return JSON.parse(fixed); } catch (_) {}
+
+  // Last resort: strip trailing comma before closing bracket/brace
+  fixed = fixed.replace(/,\s*([\]}])/g, '$1');
+  return JSON.parse(fixed);
+}
+
+// ─── Analyze ──────────────────────────────────────────────────────────────────
+btn.addEventListener('click', analyze);
+
+async function analyze() {
+  const action = fieldX.value.trim();
+  const change = fieldY.value.trim();
+  if (!action || !change) return;
+
+  // Shrink hero, show loader
+  document.getElementById('hero').classList.add('shrunk');
+  document.getElementById('results').classList.remove('visible');
+  document.getElementById('loading').classList.add('visible');
+  btn.disabled = true;
+
+  let buffer = '';
+
+  try {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, change }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Server error ${res.status}` }));
+      throw new Error(err.error || `Server error ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value);
+      const lines = text.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const payload = JSON.parse(line.slice(6));
+          if (payload.chunk) buffer += payload.chunk;
+          if (payload.error) throw new Error(payload.error);
+          if (payload.done) {
+            const jsonStr = buffer.match(/\{[\s\S]*\}/)?.[0];
+            if (!jsonStr) throw new Error('No JSON in response');
+            const data = parseJSON(jsonStr);
+            renderResults(data, action, change);
+            document.getElementById('loading').classList.remove('visible');
+            document.getElementById('results').classList.add('visible');
+            document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    document.getElementById('loading').classList.remove('visible');
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+    document.getElementById('hero').classList.remove('shrunk');
+  }
+}
+
+// ─── Reset ────────────────────────────────────────────────────────────────────
+document.getElementById('reset-btn').addEventListener('click', () => {
+  document.getElementById('hero').classList.remove('shrunk');
+  document.getElementById('results').classList.remove('visible');
+  fieldX.value = ''; fieldY.value = '';
+  autosize(fieldX); autosize(fieldY);
+  btn.disabled = true;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+// Allow pressing Enter in either field to trigger
+[fieldX, fieldY].forEach(f => f.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !btn.disabled) analyze();
+}));
+</script>
+</body>
+</html>
