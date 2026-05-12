@@ -77,45 +77,39 @@
 
   /* ─── Editable field ─────────────────────────────── */
   .field-wrap {
-    display: inline-block;
+    /* Inline so the field text flows with the headline and wraps within the
+       line, instead of becoming a wide block that pushes other words around. */
+    display: inline;
     position: relative;
-    vertical-align: baseline;
   }
 
   .field-wrap.x { color: var(--x-color); }
   .field-wrap.y { color: var(--y-color); }
 
-  .field-wrap::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0; right: 0;
-    height: 3px;
-    background: currentColor;
-  }
+  .headline .accent-y { color: var(--y-color); font-weight: 600; }
 
   .field {
-    display: inline-block;
-    min-width: 2ch;
-    max-width: min(480px, 55vw);
-    border: none;
-    background: transparent;
-    font: inherit;
-    font-size: inherit;
+    /* Inline contenteditable span — flows naturally with the headline text,
+       wraps when long, no height tricks needed. The underline is rendered
+       per-line via text-decoration so wrapped lines each get a line. */
+    display: inline;
     font-weight: 600;
     outline: none;
-    padding: 0 2px;
-    text-align: center;
     cursor: text;
-    transition: width 0.2s;
     color: inherit;
-    vertical-align: baseline;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    transition: font-size 0.2s;
+    text-decoration: underline solid currentColor;
+    text-decoration-thickness: 3px;
+    text-underline-offset: 0.18em;
+    -webkit-user-modify: read-write-plaintext-only;
   }
 
-  .field::placeholder {
+  /* Placeholder shown when the contenteditable is empty */
+  .field:empty::before {
+    content: attr(data-placeholder);
     font-family: 'Georgia', serif;
     font-style: italic;
     font-weight: 400;
@@ -125,7 +119,7 @@
   .field-word {
     font-weight: 600;
     cursor: text;
-    padding: 0 2px 0 0;
+    padding: 0 2px 0 0.2em;
     transition: opacity 0.2s ease, max-width 0.25s ease, padding 0.25s ease;
     max-width: 600px;
     overflow: hidden;
@@ -135,9 +129,10 @@
   }
 
   .field-wrap.typing .field-word {
-    opacity: 0;
-    max-width: 0;
-    padding: 0;
+    /* display: none rather than opacity+max-width — max-width has no effect on
+       inline elements, so the hidden text would still occupy inline width and
+       push visible content off-center. */
+    display: none;
   }
 
   /* ─── Autocomplete dropdown ──────────────────────── */
@@ -262,6 +257,8 @@
     margin-right: auto;
     line-height: 1.6;
   }
+
+  .diagram-summary p + p { margin-top: 0.8rem; }
 
   /* ─── Mechanisms ──────────────────────────────────── */
   .mechanisms {
@@ -399,6 +396,46 @@
     font-style: italic;
   }
 
+  .evidence-source a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.15em;
+  }
+  .evidence-source a:hover { text-decoration-thickness: 2px; }
+
+  .source-lookup {
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    font-style: italic;
+    text-decoration: underline dotted currentColor;
+    text-underline-offset: 0.15em;
+    cursor: pointer;
+  }
+  .source-lookup:hover:not([disabled]) { text-decoration-style: solid; }
+  .source-lookup[disabled] { cursor: default; opacity: 0.7; }
+  .source-lookup-empty { text-decoration: none; }
+
+  /* ─── Skeleton loaders ──────────────────────────── */
+  @keyframes skel-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  .skel {
+    background: linear-gradient(90deg, #eef0f3 0%, #e1e4ea 50%, #eef0f3 100%);
+    background-size: 200% 100%;
+    animation: skel-shimmer 1.6s ease-in-out infinite;
+    border-radius: 8px;
+    display: block;
+  }
+  .skel + .skel { margin-top: 0.6rem; }
+  .skel-li { list-style: none; padding: 0; margin: 0 0 0.6rem 0; }
+  .skel-li:last-child { margin-bottom: 0; }
+
   /* ─── History ─────────────────────────────────────── */
   .section {
     background: var(--card);
@@ -510,11 +547,24 @@
   }
 
   /* ─── Probing questions ──────────────────────────── */
+  .workbook-intro {
+    font-size: 0.88rem;
+    color: var(--muted);
+    margin: -0.5rem 0 1.25rem;
+    line-height: 1.55;
+  }
+
+  .workbook-intro strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
   .questions-list {
     list-style: none;
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
+    gap: 1rem;
+    counter-reset: q;
   }
 
   .questions-list li {
@@ -523,42 +573,46 @@
     border-radius: 10px;
     border-left: 3px solid var(--y-color);
     line-height: 1.55;
-    cursor: pointer;
     overflow: hidden;
-    transition: background 0.15s;
+    transition: background 0.15s, border-left-color 0.15s;
   }
 
-  .questions-list li:hover { background: #F3F4F6; }
-  .questions-list li.answered { background: #FDF9FF; border-left-color: var(--y-color); }
+  .questions-list li.answered { background: #FDF9FF; }
 
   .q-text {
-    padding: 0.75rem 1rem;
+    padding: 0.85rem 1rem 0.5rem;
     display: flex;
-    justify-content: space-between;
     align-items: flex-start;
-    gap: 0.75rem;
+    gap: 0.6rem;
+    font-weight: 500;
+    color: var(--text);
+    counter-increment: q;
   }
 
-  .q-toggle {
+  .q-num {
     flex-shrink: 0;
-    font-size: 0.75rem;
-    color: var(--muted);
-    margin-top: 2px;
-    transition: transform 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #EDE9FE;
+    color: var(--y-color);
+    font-size: 0.72rem;
+    font-weight: 700;
+    margin-top: 1px;
   }
 
-  .questions-list li.open .q-toggle { transform: rotate(180deg); }
+  .q-body { flex: 1; }
 
   .q-answer-wrap {
-    display: none;
-    padding: 0 1rem 0.75rem;
+    padding: 0 1rem 0.85rem;
   }
-
-  .questions-list li.open .q-answer-wrap { display: block; }
 
   .q-answer {
     width: 100%;
-    min-height: 80px;
+    min-height: 84px;
     border: 1.5px solid #E0E7FF;
     border-radius: 8px;
     padding: 0.6rem 0.75rem;
@@ -574,17 +628,32 @@
   }
 
   .q-answer:focus { border-color: var(--y-color); }
-  .q-answer::placeholder { color: #9CA3AF; }
+  .q-answer::placeholder { color: #9CA3AF; font-style: italic; }
 
   .q-saved {
     font-size: 0.72rem;
-    color: var(--y-color);
-    margin-top: 0.35rem;
-    opacity: 0;
-    transition: opacity 0.3s;
+    color: var(--muted);
+    margin-top: 0.4rem;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 1rem;
   }
 
-  .q-saved.visible { opacity: 1; }
+  .q-saved::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background 0.2s;
+  }
+
+  .q-saved.has-content { color: var(--y-color); }
+  .q-saved.has-content::before { background: var(--y-color); }
+
+  .q-saved.flash { color: var(--strong); }
+  .q-saved.flash::before { background: var(--strong); }
 
   /* ─── Assumptions ─────────────────────────────────── */
   .assumptions-list {
@@ -635,8 +704,24 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ─── Reset ──────────────────────────────────────── */
-  .reset-btn {
+  /* ─── Results action row (reset + share + print) ── */
+  .results-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .results-actions-right {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .reset-btn,
+  .action-btn {
     background: none;
     border: 1px solid var(--border);
     border-radius: 100px;
@@ -645,11 +730,393 @@
     cursor: pointer;
     color: var(--muted);
     transition: all 0.15s;
-    margin: 0 auto 2rem;
+    font: inherit;
+    font-size: 0.85rem;
+  }
+
+  .reset-btn:hover,
+  .action-btn:hover { border-color: var(--text); color: var(--text); }
+
+  /* ─── Share modal ────────────────────────────────── */
+  .share-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(17, 24, 39, 0.45);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+  }
+
+  .share-modal-backdrop.open { display: flex; }
+
+  .share-modal {
+    background: var(--card);
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    max-width: 520px;
+    width: 100%;
+    padding: 1.75rem;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+  }
+
+  .share-modal h3 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--text);
+  }
+
+  .share-warning {
+    background: #FFFBEB;
+    border: 1px solid #FDE68A;
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    font-size: 0.85rem;
+    color: #78350F;
+    line-height: 1.55;
+    margin-bottom: 1rem;
+  }
+
+  .share-warning p + p { margin-top: 0.55rem; }
+  .share-warning strong { color: #78350F; }
+
+  .share-url-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .share-url-input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.55rem 0.75rem;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    background: #F9FAFB;
+    color: var(--text);
+    outline: none;
+  }
+
+  .share-url-input:focus { border-color: var(--y-color); }
+
+  .share-copy-btn,
+  .share-native-btn {
+    background: var(--text);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 0.55rem 1rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.15s;
+    flex-shrink: 0;
+  }
+
+  .share-copy-btn:hover,
+  .share-native-btn:hover { transform: translateY(-1px); }
+  .share-copy-btn.copied { background: var(--strong); }
+
+  .share-native-btn { display: none; margin-right: 0.5rem; }
+  .share-native-btn.available { display: inline-flex; }
+
+  .share-modal-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-top: 1rem;
+  }
+
+  .share-close-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 0.45rem 1.1rem;
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .share-close-btn:hover { border-color: var(--text); color: var(--text); }
+
+  /* ─── Print styles ───────────────────────────────── */
+  @media print {
+    body { background: #fff; }
+    .hero,
+    .loading,
+    .results-actions,
+    .feedback,
+    .results-footer,
+    .evens-footer,
+    .suggestions,
+    .share-modal-backdrop { display: none !important; }
+    #results {
+      display: block !important;
+      max-width: 100% !important;
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+    .diagram-wrap,
+    .mechanisms,
+    .evidence-col,
+    .section {
+      box-shadow: none !important;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      border-radius: 8px;
+      margin-bottom: 1rem !important;
+    }
+    .evidence-grid { grid-template-columns: 1fr 1fr !important; }
+    .q-answer {
+      border: 1px solid #D1D5DB !important;
+      background: #fff !important;
+    }
+    .assumptions-list li {
+      filter: none !important;
+      background: #F3F4F6 !important;
+    }
+    a { color: inherit !important; text-decoration: none !important; }
+  }
+
+  /* ─── Feedback ───────────────────────────────────── */
+  .feedback {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem 1.75rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .feedback h3 {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.4rem;
+  }
+
+  .feedback-lead {
+    font-size: 0.95rem;
+    color: var(--text);
+    margin-bottom: 1rem;
+    line-height: 1.55;
+  }
+
+  .feedback-field {
+    width: 100%;
+    border: 1.5px solid #E0E7FF;
+    border-radius: 8px;
+    padding: 0.65rem 0.85rem;
+    font: inherit;
+    font-size: 0.9rem;
+    color: var(--text);
+    background: #fff;
+    outline: none;
+    line-height: 1.55;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
     display: block;
   }
 
-  .reset-btn:hover { border-color: var(--text); color: var(--text); }
+  .feedback-field:focus { border-color: var(--y-color); }
+  .feedback-field::placeholder { color: #9CA3AF; }
+
+  textarea.feedback-field {
+    min-height: 110px;
+    resize: vertical;
+    margin-bottom: 0.75rem;
+  }
+
+  .feedback-email-label {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-bottom: 0.35rem;
+  }
+
+  .feedback-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .feedback-btn {
+    background: var(--text);
+    color: #fff;
+    border: none;
+    border-radius: 100px;
+    padding: 0.55rem 1.5rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.15s;
+  }
+
+  .feedback-btn:hover:not(:disabled) { transform: translateY(-1px); }
+  .feedback-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  .feedback-status {
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .feedback-status.ok { color: var(--strong); }
+  .feedback-status.err { color: var(--weak); }
+
+  .feedback.sent .feedback-form { display: none; }
+  .feedback-thanks { display: none; }
+  .feedback.sent .feedback-thanks {
+    display: block;
+    color: var(--strong);
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  /* ─── Footer ─────────────────────────────────────── */
+  .results-footer {
+    margin-top: 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem 2rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .results-footer a {
+    color: var(--muted);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: color 0.15s;
+  }
+
+  .results-footer a:hover { color: var(--text); }
+
+  .results-footer .footer-sep {
+    color: var(--border);
+  }
+
+  /* ─── Evens Foundation footer (mirrors evensfoundation.eu) ─ */
+  .evens-footer {
+    margin-top: 2.5rem;
+    padding: 2.5rem 1.75rem 2rem;
+    border-top: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 16px;
+    color: var(--text);
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  .evens-footer__addresses {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.75rem 2rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .evens-footer__city {
+    display: block;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.35rem;
+  }
+
+  .evens-footer__address div { color: var(--muted); }
+
+  .evens-footer__email {
+    margin-top: 0.75rem;
+    color: var(--muted);
+  }
+
+  .evens-footer__email a {
+    color: #9c1335;
+    text-decoration: none;
+    opacity: 0.85;
+    transition: opacity 0.15s;
+  }
+
+  .evens-footer__email a:hover { opacity: 1; text-decoration: underline; }
+
+  .evens-footer__links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem 2rem;
+    padding-top: 1.5rem;
+  }
+
+  .evens-footer__policies,
+  .evens-footer__socials {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 1.25rem;
+  }
+
+  .evens-footer__policies a {
+    color: var(--text);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: color 0.15s;
+  }
+
+  .evens-footer__policies a:hover { color: #9c1335; }
+
+  .evens-footer__socials { gap: 0.5rem 1rem; }
+
+  .evens-footer__socials a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: color 0.15s;
+  }
+
+  .evens-footer__socials a:hover { color: #9c1335; }
+
+  .evens-footer__socials svg {
+    width: 1rem;
+    height: 1rem;
+    fill: #9c1335;
+    flex-shrink: 0;
+  }
+
+  .evens-footer__newsletter a {
+    color: #9c1335;
+    opacity: 0.85;
+  }
+
+  .evens-footer__newsletter a:hover { opacity: 1; }
+
+  @media (max-width: 640px) {
+    .evens-footer { padding: 2rem 1.25rem 1.75rem; }
+    .evens-footer__addresses { grid-template-columns: 1fr; }
+    .evens-footer__links { flex-direction: column; align-items: flex-start; }
+  }
 
   /* ─── SVG nodes ──────────────────────────────────── */
   .node-x { fill: #EFF6FF; stroke: var(--x-color); stroke-width: 2; }
@@ -657,6 +1124,74 @@
   .node-text-x { fill: var(--x-color); font-weight: 600; font-size: 13px; }
   .node-text-y { fill: var(--y-color); font-weight: 600; font-size: 13px; }
   .node-label { fill: #6B7280; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; }
+
+  /* ─── Related CTFG categories ──────────────────────── */
+  .related-section {
+    /* extends .section — same card shell, custom heading */
+  }
+  .related-heading {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 1.1rem;
+    line-height: 1.4;
+    letter-spacing: -0.005em;
+  }
+  .related-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: stretch;
+  }
+  @media (min-width: 720px) {
+    .related-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  .related-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    background: #F8F9FF;
+    border: 1.5px solid #E0E7FF;
+    border-radius: 12px;
+    padding: 0.9rem 1rem 0.85rem;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+  }
+  .related-card:hover {
+    border-color: var(--x-color);
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08);
+    transform: translateY(-1px);
+  }
+  .related-card-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.35;
+  }
+  .related-card-desc {
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .related-card-explore {
+    margin-top: auto;
+    align-self: flex-start;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--x-color);
+  }
+  .related-skeleton {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+    padding: 1.5rem 0;
+  }
 </style>
 </head>
 <body>
@@ -665,33 +1200,29 @@
   <p class="eyebrow">Theory of Change</p>
 
   <h1 class="headline">
-    <span class="line">How will doing
-      <label class="field-wrap x" id="wrap-x" for="field-x">
-        <input
+    <span class="line">How will
+      <span class="field-wrap x" id="wrap-x">
+        <span
           class="field"
           id="field-x"
-          type="text"
-          placeholder="x"
-          autocomplete="off"
+          contenteditable="plaintext-only"
+          data-placeholder="x"
           spellcheck="false"
-          size="12"
-        /><span class="field-word">action</span>
+        ></span><span class="field-word">action</span>
         <ul class="suggestions" id="sug-x" role="listbox"></ul>
-      </label>
+      </span>
     </span>
-    <span class="line">create
-      <label class="field-wrap y" id="wrap-y" for="field-y">
-        <input
+    <span class="line"><span class="accent-y">create</span>
+      <span class="field-wrap y" id="wrap-y">
+        <span
           class="field"
           id="field-y"
-          type="text"
-          placeholder="y"
-          autocomplete="off"
+          contenteditable="plaintext-only"
+          data-placeholder="y"
           spellcheck="false"
-          size="12"
-        /><span class="field-word">change</span>
+        ></span><span class="field-word">change</span>
         <ul class="suggestions" id="sug-y" role="listbox"></ul>
-      </label>
+      </span>
     </span>
     <span class="line">in the world?</span>
   </h1>
@@ -708,7 +1239,13 @@
 </div>
 
 <section id="results">
-  <button class="reset-btn" id="reset-btn">← Try another theory</button>
+  <div class="results-actions">
+    <button class="reset-btn" id="reset-btn">← Try another theory</button>
+    <div class="results-actions-right">
+      <button class="action-btn" id="print-btn" type="button">Save as PDF</button>
+      <button class="action-btn" id="share-btn" type="button">Share</button>
+    </div>
+  </div>
 
   <!-- Visualization -->
   <div class="diagram-wrap" id="diagram"></div>
@@ -717,6 +1254,12 @@
   <div class="mechanisms" id="mechanisms-wrap">
     <h3>How this could work — the causal chain</h3>
     <div class="mechanism-chain" id="mechanisms-list"></div>
+  </div>
+
+  <!-- Assumptions -->
+  <div class="section">
+    <h3>Hidden assumptions this theory rests on</h3>
+    <ul class="assumptions-list" id="assumptions-list"></ul>
   </div>
 
   <!-- Evidence -->
@@ -739,16 +1282,136 @@
 
   <!-- Questions -->
   <div class="section">
-    <h3>Questions to stress-test your theory</h3>
+    <h3>Workbook — stress-test your theory</h3>
+    <p class="workbook-intro"><strong>Answer the questions below in your own words.</strong> Your responses save automatically in this browser, so you can come back later or share them with your team.</p>
     <ul class="questions-list" id="questions-list"></ul>
   </div>
 
-  <!-- Assumptions -->
-  <div class="section">
-    <h3>Hidden assumptions this theory rests on</h3>
-    <ul class="assumptions-list" id="assumptions-list"></ul>
+  <!-- Related CTFG categories (lazy-loaded after page render) -->
+  <div class="section related-section" id="related-categories" hidden>
+    <h2 class="related-heading">Explore related work in this area on the Civic Tech Field Guide</h2>
+    <div class="related-grid" id="related-categories-grid"></div>
   </div>
+
+  <!-- Feedback -->
+  <div class="feedback" id="feedback">
+    <h3>How did it go?</h3>
+    <p class="feedback-lead">Tell us what worked, what surprised you, or what was off.</p>
+    <form class="feedback-form" id="feedback-form" novalidate>
+      <textarea
+        class="feedback-field"
+        id="feedback-message"
+        name="message"
+        rows="5"
+        maxlength="4000"
+        required
+        placeholder="e.g., I tested 'mentoring young people → reduced political polarization'. The historical examples brought up cases I hadn't considered, but the evidence-against section felt thin. The probing questions were the most useful part — they reframed how I'd pitch this to a funder."
+      ></textarea>
+      <label class="feedback-email-label" for="feedback-email">Your email (optional — only if you'd like a reply)</label>
+      <input
+        class="feedback-field"
+        id="feedback-email"
+        name="email"
+        type="email"
+        autocomplete="email"
+        placeholder="you@example.com"
+      />
+      <div class="feedback-actions">
+        <button type="submit" class="feedback-btn" id="feedback-submit">Send feedback</button>
+        <span class="feedback-status" id="feedback-status"></span>
+      </div>
+    </form>
+    <p class="feedback-thanks">Thanks — your feedback is on its way. We read every note.</p>
+  </div>
+
+  <!-- Footer -->
+  <footer class="results-footer">
+    <a href="https://github.com/mstem/theory-of-change" target="_blank" rel="noopener noreferrer">Get the code on Github</a>
+    <span class="footer-sep">·</span>
+    <a href="#" target="_blank" rel="noopener noreferrer">About this project</a>
+    <span class="footer-sep">·</span>
+    <a href="https://github.com/mstem/theory-of-change/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>
+  </footer>
+
+  <!-- Evens Foundation footer (duplicated from evensfoundation.eu) -->
+  <footer class="evens-footer" aria-label="Evens Foundation">
+    <div class="evens-footer__addresses">
+      <div class="evens-footer__address">
+        <span class="evens-footer__city">Antwerp</span>
+        <div>Frankrijklei 37 bus 12</div>
+        <div>2000 Antwerp</div>
+        <div>Belgium</div>
+        <div class="evens-footer__email">E. <a href="mailto:hello@evensfoundation.eu">hello@evensfoundation.eu</a></div>
+      </div>
+      <div class="evens-footer__address">
+        <span class="evens-footer__city">Brussels</span>
+        <div>Philanthropy House, Rue Royale 94</div>
+        <div>1000 Brussels</div>
+        <div>Belgium</div>
+      </div>
+    </div>
+    <div class="evens-footer__links">
+      <ul class="evens-footer__policies">
+        <li><a href="https://evensfoundation.eu/privacy-policy" target="_blank" rel="noopener noreferrer">Privacy Policy</a></li>
+        <li><a href="https://evensfoundation.eu/cookie-policy" target="_blank" rel="noopener noreferrer">Cookie Policy</a></li>
+      </ul>
+      <ul class="evens-footer__socials">
+        <li>
+          <a href="https://www.facebook.com/theevensfoundation" target="_blank" rel="noopener noreferrer" aria-label="Facebook" title="Facebook">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M22.675 0h-21.35C.595 0 0 .593 0 1.325v21.351C0 23.408.595 24 1.325 24H12.82v-9.294H9.692v-3.622h3.128V8.413c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.795.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.313h3.587l-.467 3.622h-3.12V24h6.116c.73 0 1.323-.592 1.323-1.325V1.325C24 .593 23.408 0 22.675 0z"/></svg>
+            <span>Facebook</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/evensfoundation" target="_blank" rel="noopener noreferrer" aria-label="Twitter" title="Twitter">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/></svg>
+            <span>Twitter</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://www.instagram.com/changingdemocracies.eu/" target="_blank" rel="noopener noreferrer" aria-label="Instagram" title="Instagram">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+            <span>Instagram</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://www.youtube.com/channel/UCLF2RKyhzt9B4BR--b5dtQA" target="_blank" rel="noopener noreferrer" aria-label="YouTube" title="YouTube">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+            <span>YouTube</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://be.linkedin.com/company/evens-foundation-be" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn" title="LinkedIn">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M20.45 20.45h-3.55v-5.57c0-1.33-.02-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.36V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0z"/></svg>
+            <span>LinkedIn</span>
+          </a>
+        </li>
+        <li class="evens-footer__newsletter">
+          <a href="http://eepurl.com/dJcs1L" target="_blank" rel="noopener noreferrer">Sign up to our newsletter</a>
+        </li>
+      </ul>
+    </div>
+  </footer>
 </section>
+
+<!-- Share modal — must be before the script so the script can find these elements at parse time. -->
+<div class="share-modal-backdrop" id="share-backdrop" role="dialog" aria-modal="true" aria-labelledby="share-modal-title" hidden>
+  <div class="share-modal">
+    <h3 id="share-modal-title">Share this theory</h3>
+    <div class="share-warning">
+      <p><strong>Heads up</strong> — assume this link could be discovered online. Don't share it if your action or change contains anything you'd rather keep private.</p>
+      <p>Your workbook answers stay in this browser only — they're saved to local storage and are <strong>not</strong> included in the shared link. Only the original action and change travel with the URL.</p>
+    </div>
+    <div class="share-url-row">
+      <input class="share-url-input" id="share-url-input" type="text" readonly aria-label="Share URL">
+      <button class="share-copy-btn" id="share-copy-btn" type="button">Copy link</button>
+    </div>
+    <div class="share-modal-actions">
+      <button class="share-native-btn" id="share-native-btn" type="button">Share…</button>
+      <button class="share-close-btn" id="share-close-btn" type="button">Close</button>
+    </div>
+  </div>
+</div>
 
 <script>
 // ─── Suggestion data ──────────────────────────────────────────────────────────
@@ -850,8 +1513,8 @@ function setupAutocomplete(inputEl, sugEl, data) {
   }
 
   function pick(value) {
-    inputEl.value = value;
-    autosize(inputEl);
+    setFieldValue(inputEl, value);
+    updateField(inputEl);
     sugEl.classList.remove('open');
     checkReady();
   }
@@ -859,16 +1522,18 @@ function setupAutocomplete(inputEl, sugEl, data) {
   function close() { sugEl.classList.remove('open'); activeIdx = -1; }
 
   inputEl.addEventListener('input', () => {
-    autosize(inputEl);
-    const items = filter(inputEl.value);
-    render(items, inputEl.value);
+    updateField(inputEl);
+    const v = fieldValue(inputEl);
+    const items = filter(v);
+    render(items, v);
     checkReady();
   });
 
   inputEl.addEventListener('focus', () => {
-    autosize(inputEl);
-    const items = filter(inputEl.value);
-    if (items.length) render(items, inputEl.value);
+    updateField(inputEl);
+    const v = fieldValue(inputEl);
+    const items = filter(v);
+    if (items.length) render(items, v);
   });
 
   inputEl.addEventListener('blur', () => setTimeout(close, 150));
@@ -894,24 +1559,32 @@ function setupAutocomplete(inputEl, sugEl, data) {
   });
 }
 
-function autosize(el) {
-  const wrap = el.parentElement;
-  const tmp = document.createElement('span');
-  tmp.style.cssText = 'visibility:hidden;position:absolute;white-space:pre;font:inherit;font-size:' +
-    getComputedStyle(el).fontSize + ';font-weight:600;';
-  tmp.textContent = el.value || 'x';
-  document.body.appendChild(tmp);
-  const maxW = Math.min(480, window.innerWidth * 0.55);
-  const w = Math.min(Math.max(tmp.offsetWidth + 8, 20), maxW) + 'px';
-  el.style.width = w;
-  document.body.removeChild(tmp);
+// Contenteditable helpers — keep an .value-like API to minimise downstream churn.
+function fieldValue(el) {
+  return (el.textContent || '').replace(/​/g, ''); // strip zero-width if any
+}
+function setFieldValue(el, v) {
+  el.textContent = v || '';
+}
 
-  // set dropdown width to match the full underline (wrap) after layout
+function updateField(el) {
+  const text = fieldValue(el);
+  const len  = text.length;
+
+  // Step-down font size for long inputs so users see their full text wrapped
+  // onto a couple of lines instead of truncated.
+  let fontScale = '';
+  if (len > 40)      fontScale = '0.55em';
+  else if (len > 25) fontScale = '0.7em';
+  else if (len > 15) fontScale = '0.85em';
+  el.style.fontSize = fontScale;
+
+  const wrap = el.parentElement;
+  // Dropdown width matches the wrap after layout settles.
   const sug = wrap.querySelector('.suggestions');
   if (sug) requestAnimationFrame(() => { sug.style.width = wrap.offsetWidth + 'px'; });
 
-  // toggle typing state
-  wrap.classList.toggle('typing', el.value.length > 0);
+  wrap.classList.toggle('typing', text.length > 0);
 }
 
 const fieldX = document.getElementById('field-x');
@@ -922,10 +1595,28 @@ const btn    = document.getElementById('analyze-btn');
 
 setupAutocomplete(fieldX, sugX, X_SUGGESTIONS);
 setupAutocomplete(fieldY, sugY, Y_SUGGESTIONS);
-autosize(fieldX); autosize(fieldY);
+updateField(fieldX); updateField(fieldY);
+
+// Clicking anywhere in the wrap (including the placeholder "action"/"change"
+// word) focuses the contenteditable — replaces what <label for=…> used to do.
+[fieldX, fieldY].forEach(f => {
+  f.parentElement.addEventListener('click', e => {
+    if (e.target !== f) {
+      e.preventDefault();
+      f.focus();
+      // Place caret at end
+      const range = document.createRange();
+      range.selectNodeContents(f);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  });
+});
 
 function checkReady() {
-  btn.disabled = !fieldX.value.trim() || !fieldY.value.trim();
+  btn.disabled = !fieldValue(fieldX).trim() || !fieldValue(fieldY).trim();
 }
 
 fieldX.addEventListener('input', checkReady);
@@ -974,22 +1665,26 @@ function buildDiagram(action, change, strength, label) {
   const cy = H / 2;
   const startX = lx + nw + 8;
   const endX = rx - 8;
-  const strokeW = Math.max(2, Math.round(strength / 100 * 14));
-  const dash = label === 'Speculative' ? '8 6' : label === 'Weak' ? '5 4' : 'none';
-  const midX = (startX + endX) / 2;
-  const gid = 'grad' + Date.now();
+  // Strength is expressed entirely visually via the arrow: thickness, opacity,
+  // and dash density. No numeric badge — the strength score lives in the
+  // labelled badge under the diagram.
+  const strokeW = Math.max(2.5, Math.round((strength / 100) * 14));
+  const opacity = 0.4 + (strength / 100) * 0.55;     // 0.4 → 0.95
+  const dash = label === 'Strong'   ? 'none'
+             : label === 'Moderate' ? '14 4'
+             : label === 'Weak'     ? '8 6'
+             :                        '4 8';          // Speculative
+
+  // Arrowhead drawn as a sibling polygon (not a stroke-scaled marker) so its
+  // size is predictable. Line ends exactly at the arrowhead's base with butt
+  // linecap, so each dash terminates flush against the triangle — like a
+  // hand-drawn arrow where the dashes stop when they hit the head.
+  const headW = Math.max(12, strokeW * 1.4);
+  const headH = Math.max(10, strokeW * 1.2);
+  const tipX = endX - 2;
+  const baseX = tipX - headW;
 
   return `<svg class="diagram-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">
-  <defs>
-    <linearGradient id="${gid}" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#2563EB" stop-opacity="0.8"/>
-      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0.8"/>
-    </linearGradient>
-    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-      <polygon points="0 0, 8 3, 0 6" fill="${color}" opacity="0.9"/>
-    </marker>
-  </defs>
-
   <!-- Action node -->
   <rect x="${lx}" y="${cy - 50}" width="${nw}" height="100" rx="12" class="node-x"/>
   <text x="${lx + nw/2}" y="${cy - 30}" text-anchor="middle" class="node-label">ACTION</text>
@@ -1000,21 +1695,19 @@ function buildDiagram(action, change, strength, label) {
   <text x="${rx + nw/2}" y="${cy - 30}" text-anchor="middle" class="node-label">CHANGE</text>
   ${svgWrappedText(change, rx + nw/2, cy + 8, 'node-text-y')}
 
-  <!-- Arrow -->
+  <!-- Connection: dashes stop flush against the arrowhead -->
   <line
     x1="${startX}" y1="${cy}"
-    x2="${endX - 8}" y2="${cy}"
+    x2="${baseX}" y2="${cy}"
     stroke="${color}" stroke-width="${strokeW}"
     stroke-dasharray="${dash}"
-    stroke-linecap="round"
-    marker-end="url(#arrowhead)"
-    opacity="0.85"
+    stroke-linecap="butt"
+    opacity="${opacity}"
   />
-
-  <!-- Strength badge -->
-  <circle cx="${midX}" cy="${cy}" r="22" fill="white" stroke="${color}" stroke-width="2"/>
-  <text x="${midX}" y="${cy + 1}" text-anchor="middle" dominant-baseline="middle"
-    font-size="13" font-weight="700" fill="${color}">${strength}%</text>
+  <polygon
+    points="${baseX},${cy - headH/2} ${tipX},${cy} ${baseX},${cy + headH/2}"
+    fill="${color}" opacity="${opacity}"
+  />
 </svg>`;
 }
 
@@ -1028,54 +1721,100 @@ function truncate(str, max) {
 }
 
 // ─── Render results ───────────────────────────────────────────────────────────
-function renderResults(data, action, change) {
+// Per-section renderers — each is idempotent (safe to call twice with same data).
+function renderDiagramSection(data, action, change) {
   const color = strengthColor(data.strength_label);
+  // Split the summary into one paragraph per sentence so each idea breathes.
+  // Regex captures runs ending in . ! or ? (incl. ellipses); falls back to
+  // whole string if no sentence-terminator is found.
+  const summaryText = data.summary || '';
+  const sentences = summaryText.match(/[^.!?]+[.!?]+["')\]]*\s*/g) || [summaryText];
+  const summaryHtml = sentences
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(s => `<p>${s}</p>`)
+    .join('');
 
-  // Diagram
   document.getElementById('diagram').innerHTML = `
     ${buildDiagram(action, change, data.strength, data.strength_label)}
     <div class="strength-badge">
       <span class="strength-dot" style="background:${color}"></span>
       <span style="color:${color}">${data.strength_label} link</span>
-      <span style="color:#9CA3AF;font-weight:400"> — ${data.strength}/100</span>
     </div>
-    <p class="diagram-summary">${data.summary}</p>
+    <div class="diagram-summary">${summaryHtml}</div>
   `;
+}
 
-  // Mechanisms
-  const mEl = document.getElementById('mechanisms-list');
-  const steps = data.mechanisms || [];
-  mEl.innerHTML = steps.map((m, i) => `
+function renderMechanismsSection(mechanisms) {
+  document.getElementById('mechanisms-list').innerHTML = (mechanisms || []).map((m, i) => `
     <div class="mechanism-node">
       <div class="mechanism-num">${i + 1}</div>
       <div class="mechanism-bubble">${m}</div>
     </div>
   `).join('');
+}
 
-  // Evidence for
-  document.getElementById('evidence-for').innerHTML = (data.evidence_for || []).map(e => `
+function renderEvidenceColumn(elId, items) {
+  document.getElementById(elId).innerHTML = (items || []).map(e => {
+    const source = e.source || '';
+    const context = `${e.title || ''} — ${e.description || ''}`;
+    return `
     <div class="evidence-item">
-      <div class="evidence-title">${e.title}</div>
-      <div class="evidence-desc">${e.description}</div>
-      <div class="evidence-source">${e.source}</div>
+      <div class="evidence-title">${escapeHtml(e.title || '')}</div>
+      <div class="evidence-desc">${escapeHtml(e.description || '')}</div>
+      <div class="evidence-source">
+        <span class="source-name">${escapeHtml(source)}</span><span class="source-sep"> · </span><button type="button" class="source-lookup" data-source="${escapeHtml(source)}" data-context="${escapeHtml(context)}">source</button>
+      </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
+}
 
-  // Evidence against
-  document.getElementById('evidence-against').innerHTML = (data.evidence_against || []).map(e => `
-    <div class="evidence-item">
-      <div class="evidence-title">${e.title}</div>
-      <div class="evidence-desc">${e.description}</div>
-      <div class="evidence-source">${e.source}</div>
-    </div>
-  `).join('');
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.source-lookup');
+  if (!btn || btn.disabled) return;
+  const source = btn.dataset.source || '';
+  const context = btn.dataset.context || '';
+  if (!source) return;
 
-  // History — timeline
-  const examples = (data.historical_examples || [])
-    .slice()
-    .sort((a, b) => extractYear(a.period) - extractYear(b.period));
+  btn.disabled = true;
+  btn.textContent = 'looking up…';
 
-  document.getElementById('history-list').innerHTML = examples.map(h => `
+  try {
+    const res = await fetch('/api/source-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source, context }),
+    });
+    const data = await res.json().catch(() => ({}));
+    const url = typeof data.url === 'string' && /^https?:\/\//i.test(data.url) ? data.url : '';
+
+    const wrap = btn.parentElement;
+    const nameEl = wrap.querySelector('.source-name');
+    const sepEl = wrap.querySelector('.source-sep');
+
+    if (url) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer nofollow';
+      a.textContent = nameEl.textContent;
+      nameEl.replaceWith(a);
+      if (sepEl) sepEl.remove();
+      btn.remove();
+    } else {
+      btn.textContent = 'no source found';
+      btn.classList.add('source-lookup-empty');
+    }
+  } catch {
+    btn.textContent = 'lookup failed';
+    btn.classList.add('source-lookup-empty');
+  }
+});
+
+function renderHistorySection(examples) {
+  const sorted = (examples || []).slice().sort((a, b) => extractYear(a.period) - extractYear(b.period));
+  document.getElementById('history-list').innerHTML = sorted.map(h => `
     <div class="tl-item">
       <div class="tl-period">${h.period}</div>
       <div class="tl-spacer"></div>
@@ -1087,21 +1826,21 @@ function renderResults(data, action, change) {
       </div>
     </div>
   `).join('');
+}
 
-  // Questions — interactive worksheet
+function renderQuestionsSection(questions, action, change) {
   const worksheetKey = `toc:${action}:${change}`;
   const saved = JSON.parse(localStorage.getItem(worksheetKey) || '{}');
-
   const qEl = document.getElementById('questions-list');
-  qEl.innerHTML = (data.probing_questions || []).slice(0, 3).map((q, i) => `
+  qEl.innerHTML = (questions || []).slice(0, 3).map((q, i) => `
     <li data-i="${i}">
       <div class="q-text">
-        <span>${q}</span>
-        <span class="q-toggle">▾</span>
+        <span class="q-num">${i + 1}</span>
+        <span class="q-body">${q}</span>
       </div>
       <div class="q-answer-wrap">
-        <textarea class="q-answer" placeholder="Write your answer…" rows="3">${saved[i] || ''}</textarea>
-        <div class="q-saved">Saved</div>
+        <textarea class="q-answer" placeholder="Write your thinking here…" rows="4">${saved[i] || ''}</textarea>
+        <div class="q-saved">Auto-saves to this browser as you type</div>
       </div>
     </li>
   `).join('');
@@ -1110,12 +1849,20 @@ function renderResults(data, action, change) {
     const i = li.dataset.i;
     const ta = li.querySelector('.q-answer');
     const savedMsg = li.querySelector('.q-saved');
-    if (saved[i]) li.classList.add('answered');
 
-    li.querySelector('.q-text').addEventListener('click', () => {
-      li.classList.toggle('open');
-      if (li.classList.contains('open')) ta.focus();
-    });
+    function refreshSavedState(content) {
+      if (content) {
+        li.classList.add('answered');
+        savedMsg.classList.add('has-content');
+        savedMsg.textContent = 'Saved to this browser';
+      } else {
+        li.classList.remove('answered');
+        savedMsg.classList.remove('has-content');
+        savedMsg.textContent = 'Auto-saves to this browser as you type';
+      }
+    }
+
+    refreshSavedState(saved[i] || '');
 
     let saveTimer;
     ta.addEventListener('input', () => {
@@ -1124,30 +1871,154 @@ function renderResults(data, action, change) {
         const all = JSON.parse(localStorage.getItem(worksheetKey) || '{}');
         all[i] = ta.value;
         localStorage.setItem(worksheetKey, JSON.stringify(all));
-        li.classList.toggle('answered', !!ta.value);
-        savedMsg.classList.add('visible');
-        setTimeout(() => savedMsg.classList.remove('visible'), 1500);
+        refreshSavedState(ta.value);
+        savedMsg.classList.add('flash');
+        setTimeout(() => savedMsg.classList.remove('flash'), 900);
       }, 400);
     });
-
-    ta.addEventListener('click', e => e.stopPropagation());
   });
+}
 
-  // Assumptions — blurred until hover/tap
+function renderAssumptionsSection(assumptions) {
   const aEl = document.getElementById('assumptions-list');
-  aEl.innerHTML = (data.assumptions || []).map(a => `<li>${a}</li>`).join('');
+  aEl.innerHTML = (assumptions || []).map(a => `<li>${a}</li>`).join('');
   aEl.querySelectorAll('li').forEach(li => {
     li.addEventListener('click', () => li.classList.toggle('revealed'));
   });
 }
 
+function renderResults(data, action, change) {
+  renderDiagramSection(data, action, change);
+  renderMechanismsSection(data.mechanisms);
+  renderEvidenceColumn('evidence-for', data.evidence_for);
+  renderEvidenceColumn('evidence-against', data.evidence_against);
+  renderHistorySection(data.historical_examples);
+  renderQuestionsSection(data.probing_questions, action, change);
+  renderAssumptionsSection(data.assumptions);
+}
+
+// ─── Progressive render (streams sections as Claude emits them) ───────────────
+const SECTIONS_IN_ORDER = [
+  'strength', 'strength_label', 'summary',
+  'mechanisms', 'evidence_for', 'evidence_against',
+  'historical_examples', 'probing_questions', 'assumptions'
+];
+let _renderedSections = new Set();
+let _partialData = {};
+
+function resetProgressiveState() {
+  _renderedSections = new Set();
+  _partialData = {};
+}
+
+function injectSkeletons() {
+  const bar = (h) => `<div class="skel" style="height:${h}px"></div>`;
+  const liBar = (h) => `<li class="skel-li"><div class="skel" style="height:${h}px"></div></li>`;
+  document.getElementById('diagram').innerHTML = bar(220);
+  document.getElementById('mechanisms-list').innerHTML = bar(56) + bar(56) + bar(56);
+  document.getElementById('assumptions-list').innerHTML = liBar(22).repeat(3);
+  document.getElementById('evidence-for').innerHTML = bar(90) + bar(90) + bar(90);
+  document.getElementById('evidence-against').innerHTML = bar(90) + bar(90) + bar(90);
+  document.getElementById('history-list').innerHTML = bar(70) + bar(70) + bar(70);
+  document.getElementById('questions-list').innerHTML = liBar(22).repeat(3);
+}
+
+function tryProgressiveRender(buffer, action, change) {
+  const cleanBuf = buffer
+    .replace(/^```(?:json)?\s*/, '')
+    .replace(/```\s*$/, '');
+  let parsed;
+  try { parsed = parseJSON(cleanBuf); } catch { return false; }
+  if (!parsed || typeof parsed !== 'object') return false;
+
+  let renderedAny = false;
+  for (let i = 0; i < SECTIONS_IN_ORDER.length; i++) {
+    const key = SECTIONS_IN_ORDER[i];
+    if (_renderedSections.has(key)) continue;
+    if (!(key in parsed)) break; // sections render in order
+    // A section is "complete" when a later section's key appears in the buffer
+    // as a top-level JSON field (preceded by `,` not embedded in a string).
+    // For the LAST section, complete when buffer ends with closing `}`.
+    let isComplete = false;
+    for (let j = i + 1; j < SECTIONS_IN_ORDER.length; j++) {
+      const re = new RegExp(`,\\s*"${SECTIONS_IN_ORDER[j]}"\\s*:`);
+      if (re.test(cleanBuf)) { isComplete = true; break; }
+    }
+    if (!isComplete && i === SECTIONS_IN_ORDER.length - 1) {
+      isComplete = /\}\s*$/.test(cleanBuf.trim());
+    }
+    if (!isComplete) break;
+
+    _partialData[key] = parsed[key];
+    _renderedSections.add(key);
+
+    // Render the section now that it's complete.
+    // Diagram needs strength + strength_label + summary together; render once when summary lands.
+    if (key === 'strength' || key === 'strength_label') {
+      // Wait for summary
+    } else if (key === 'summary') {
+      if ('strength' in _partialData && 'strength_label' in _partialData) {
+        renderDiagramSection(_partialData, action, change);
+        renderedAny = true;
+      }
+    } else if (key === 'mechanisms') {
+      renderMechanismsSection(_partialData.mechanisms);
+      renderedAny = true;
+    } else if (key === 'evidence_for') {
+      renderEvidenceColumn('evidence-for', _partialData.evidence_for);
+      renderedAny = true;
+    } else if (key === 'evidence_against') {
+      renderEvidenceColumn('evidence-against', _partialData.evidence_against);
+      renderedAny = true;
+    } else if (key === 'historical_examples') {
+      renderHistorySection(_partialData.historical_examples);
+      renderedAny = true;
+    } else if (key === 'probing_questions') {
+      renderQuestionsSection(_partialData.probing_questions, action, change);
+      renderedAny = true;
+    } else if (key === 'assumptions') {
+      renderAssumptionsSection(_partialData.assumptions);
+      renderedAny = true;
+    }
+  }
+  return renderedAny;
+}
+
 // ─── Robust JSON parser ───────────────────────────────────────────────────────
+// Claude's output occasionally contains JSON-illegal raw control chars inside
+// string values (newlines, tabs, CR) — JSON forbids U+0000..U+001F unescaped
+// inside strings, so JSON.parse throws "Unterminated string at position X" at
+// the byte index of the offending char. We escape these before parsing, then
+// fall back to closing any truncated structure (max_tokens cutoff).
 function parseJSON(str) {
   // First try straight parse
   try { return JSON.parse(str); } catch (_) {}
 
-  // Close any truncated structure by counting unclosed brackets/braces
-  let fixed = str;
+  // Pass 1: escape raw control chars that appear inside strings.
+  let escaped = '';
+  let inStr = false;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    // Honor backslash-escapes inside strings so we don't double-escape \" or \\.
+    if (c === '\\' && inStr && i + 1 < str.length) {
+      escaped += c + str[i + 1];
+      i++;
+      continue;
+    }
+    if (c === '"') { inStr = !inStr; escaped += c; continue; }
+    if (inStr) {
+      const code = c.charCodeAt(0);
+      if (c === '\n') { escaped += '\\n'; continue; }
+      if (c === '\r') { escaped += '\\r'; continue; }
+      if (c === '\t') { escaped += '\\t'; continue; }
+      if (code < 0x20) { escaped += '\\u' + code.toString(16).padStart(4, '0'); continue; }
+    }
+    escaped += c;
+  }
+  try { return JSON.parse(escaped); } catch (_) {}
+
+  // Pass 2: close any truncated structure by counting unclosed brackets/braces.
+  let fixed = escaped;
   const opens = { '{': '}', '[': ']', '"': '"' };
   const stack = [];
   let inString = false;
@@ -1160,7 +2031,9 @@ function parseJSON(str) {
       else if ((c === '}' || c === ']') && stack[stack.length-1] === c) stack.pop();
     }
   }
-  // Close unclosed string first, then brackets
+  // If the truncation happened right after a backslash, drop the dangling \ so
+  // we don't end up with an invalid escape when we close the string.
+  if (inString && fixed.endsWith('\\')) fixed = fixed.slice(0, -1);
   if (inString) fixed += '"';
   while (stack.length) {
     const top = stack.pop();
@@ -1168,26 +2041,34 @@ function parseJSON(str) {
   }
   try { return JSON.parse(fixed); } catch (_) {}
 
-  // Last resort: strip trailing comma before closing bracket/brace
+  // Pass 3: strip trailing comma before closing bracket/brace.
   fixed = fixed.replace(/,\s*([\]}])/g, '$1');
-  return JSON.parse(fixed);
+  try { return JSON.parse(fixed); } catch (e) {
+    // Surface a more useful error than the raw position number.
+    throw new Error('Could not parse model response as JSON: ' + e.message);
+  }
 }
 
 // ─── Analyze ──────────────────────────────────────────────────────────────────
 btn.addEventListener('click', analyze);
 
 async function analyze() {
-  const action = fieldX.value.trim();
-  const change = fieldY.value.trim();
+  const action = fieldValue(fieldX).trim();
+  const change = fieldValue(fieldY).trim();
   if (!action || !change) return;
 
-  // Shrink hero, show loader
+  // Shrink hero, show loader, reset progressive state
   document.getElementById('hero').classList.add('shrunk');
   document.getElementById('results').classList.remove('visible');
   document.getElementById('loading').classList.add('visible');
   btn.disabled = true;
+  resetProgressiveState();
+  // Skeleton loaders fill each block until its real content streams in,
+  // so reordered/late-arriving sections don't sit blank.
+  injectSkeletons();
 
   let buffer = '';
+  let resultsShown = false;
 
   try {
     const res = await fetch('/api/analyze', {
@@ -1218,11 +2099,24 @@ async function analyze() {
             const jsonStr = buffer.match(/\{[\s\S]*\}/)?.[0];
             if (!jsonStr) throw new Error('No JSON in response');
             const data = parseJSON(jsonStr);
-            renderResults(data, action, change);
+            renderResults(data, action, change); // final safety pass — idempotent
             document.getElementById('loading').classList.remove('visible');
-            document.getElementById('results').classList.add('visible');
-            document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (!resultsShown) {
+              document.getElementById('results').classList.add('visible');
+              scrollToResults();
+              resultsShown = true;
+            }
+            scheduleRelatedCategories(data, action, change);
           }
+        }
+      }
+      // After each chunk, try to render any newly-complete sections
+      if (payload_chunk_arrived(buffer)) {
+        if (tryProgressiveRender(buffer, action, change) && !resultsShown) {
+          document.getElementById('loading').classList.remove('visible');
+          document.getElementById('results').classList.add('visible');
+          scrollToResults();
+          resultsShown = true;
         }
       }
     }
@@ -1234,20 +2128,307 @@ async function analyze() {
   }
 }
 
+// Tiny helper to indicate the buffer has grown — we always re-try render after
+// any read(), since chunks arrive in arbitrary boundaries.
+function payload_chunk_arrived(buf) { return buf && buf.length > 0; }
+
+// Scroll to #results, but wait for the hero's shrink transition to finish
+// first. Otherwise (e.g., on cached responses that arrive before the 600ms
+// hero transition completes) we'd scroll to the pre-shrink position and land
+// well below the diagram.
+function scrollToResults() {
+  const hero = document.getElementById('hero');
+  const target = document.getElementById('results');
+  let fired = false;
+  function go() {
+    if (fired) return;
+    fired = true;
+    hero.removeEventListener('transitionend', onEnd);
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function onEnd(e) {
+    if (e.target === hero) go();
+  }
+  hero.addEventListener('transitionend', onEnd);
+  // Fallback if the transition is already done or transitionend doesn't fire
+  // (e.g., prefers-reduced-motion). Match the CSS duration (600ms) + a buffer.
+  setTimeout(go, 650);
+}
+
 // ─── Reset ────────────────────────────────────────────────────────────────────
 document.getElementById('reset-btn').addEventListener('click', () => {
   document.getElementById('hero').classList.remove('shrunk');
   document.getElementById('results').classList.remove('visible');
-  fieldX.value = ''; fieldY.value = '';
-  autosize(fieldX); autosize(fieldY);
+  setFieldValue(fieldX, ''); setFieldValue(fieldY, '');
+  updateField(fieldX); updateField(fieldY);
   btn.disabled = true;
+  resetProgressiveState();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
-// Allow pressing Enter in either field to trigger
+// Enter submits; Shift+Enter inserts a newline (default textarea behavior)
 [fieldX, fieldY].forEach(f => f.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !btn.disabled) analyze();
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!btn.disabled) analyze();
+  }
 }));
+
+// ─── Feedback ────────────────────────────────────────────────────────────────
+const feedbackForm   = document.getElementById('feedback-form');
+const feedbackWrap   = document.getElementById('feedback');
+const feedbackMsg    = document.getElementById('feedback-message');
+const feedbackEmail  = document.getElementById('feedback-email');
+const feedbackBtn    = document.getElementById('feedback-submit');
+const feedbackStatus = document.getElementById('feedback-status');
+
+feedbackForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const message = feedbackMsg.value.trim();
+  const email = feedbackEmail.value.trim();
+
+  if (!message) {
+    feedbackStatus.textContent = 'Please add a short message before sending.';
+    feedbackStatus.className = 'feedback-status err';
+    feedbackMsg.focus();
+    return;
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    feedbackStatus.textContent = 'That email address does not look valid.';
+    feedbackStatus.className = 'feedback-status err';
+    feedbackEmail.focus();
+    return;
+  }
+
+  feedbackBtn.disabled = true;
+  feedbackStatus.textContent = 'Sending…';
+  feedbackStatus.className = 'feedback-status';
+
+  try {
+    const res = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, email: email || undefined })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || `Server error ${res.status}`);
+    }
+    feedbackWrap.classList.add('sent');
+  } catch (err) {
+    feedbackStatus.textContent = 'Could not send: ' + err.message;
+    feedbackStatus.className = 'feedback-status err';
+    feedbackBtn.disabled = false;
+  }
+});
+
+// Reset feedback state when user starts a new theory
+document.getElementById('reset-btn').addEventListener('click', () => {
+  feedbackWrap.classList.remove('sent');
+  feedbackMsg.value = '';
+  feedbackEmail.value = '';
+  feedbackBtn.disabled = false;
+  feedbackStatus.textContent = '';
+  feedbackStatus.className = 'feedback-status';
+});
+
+// ─── Related CTFG categories (lazy-loaded recommendation widget) ──────────────
+let _relatedObserver = null;
+let _relatedInputText = null;
+let _relatedFetched = false;
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, m =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+
+function scheduleRelatedCategories(data, action, change) {
+  const section = document.getElementById('related-categories');
+  const grid = document.getElementById('related-categories-grid');
+  if (!section || !grid) return;
+
+  // Reset per-submission state
+  _relatedFetched = false;
+  grid.innerHTML = '<div class="related-skeleton">Looking for related work…</div>';
+  section.hidden = false;
+
+  // Build input text: action + change + summary + mechanisms only
+  // (evidence/assumptions add noise without improving category match quality)
+  const parts = [action, change, data.summary, ...(Array.isArray(data.mechanisms) ? data.mechanisms : [])];
+  _relatedInputText = parts.filter(Boolean).join('\n').slice(0, 5000);
+
+  // Lazy-fetch: trigger when section scrolls near viewport
+  if (typeof IntersectionObserver === 'undefined') {
+    // Old browser fallback: fetch immediately
+    fetchRelatedCategories(_relatedInputText);
+    return;
+  }
+  if (!_relatedObserver) {
+    _relatedObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting && !_relatedFetched && _relatedInputText) {
+          _relatedFetched = true;
+          fetchRelatedCategories(_relatedInputText);
+        }
+      }
+    }, { rootMargin: '200px' });
+    _relatedObserver.observe(section);
+  } else if (!_relatedFetched && _relatedInputText) {
+    // On re-submission, observer is already firing for elements in view —
+    // force-check by re-observing
+    _relatedObserver.unobserve(section);
+    _relatedObserver.observe(section);
+  }
+}
+
+async function fetchRelatedCategories(text) {
+  const section = document.getElementById('related-categories');
+  const grid = document.getElementById('related-categories-grid');
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const res = await fetch('/api/recommend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, limit: 3 }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error('http ' + res.status);
+    const payload = await res.json();
+    const cats = Array.isArray(payload.categories) ? payload.categories : [];
+    if (!cats.length || payload.dailyCapReached) {
+      section.hidden = true;
+      grid.innerHTML = '';
+      return;
+    }
+    grid.innerHTML = cats.map(c => `
+      <a class="related-card" href="${escapeHtml(c.softrUrl || '#')}" target="_blank" rel="noopener noreferrer">
+        <div class="related-card-name">${escapeHtml(c.name)}</div>
+        ${c.description ? `<div class="related-card-desc">${escapeHtml(c.description)}</div>` : ''}
+        <span class="related-card-explore">Explore →</span>
+      </a>
+    `).join('');
+  } catch (err) {
+    console.warn('related-categories: fetch failed', err);
+    section.hidden = true;
+    grid.innerHTML = '';
+  }
+}
+
+// Clear related categories when user starts a new theory
+document.getElementById('reset-btn').addEventListener('click', () => {
+  const section = document.getElementById('related-categories');
+  const grid = document.getElementById('related-categories-grid');
+  if (section) section.hidden = true;
+  if (grid) grid.innerHTML = '';
+  _relatedFetched = false;
+  _relatedInputText = null;
+});
+
+// ─── Print + Share ───────────────────────────────────────────────────────────
+document.getElementById('print-btn').addEventListener('click', () => {
+  window.print();
+});
+
+const shareBackdrop  = document.getElementById('share-backdrop');
+const shareUrlInput  = document.getElementById('share-url-input');
+const shareCopyBtn   = document.getElementById('share-copy-btn');
+const shareNativeBtn = document.getElementById('share-native-btn');
+const shareCloseBtn  = document.getElementById('share-close-btn');
+
+function buildShareUrl() {
+  const a = fieldValue(fieldX).trim();
+  const c = fieldValue(fieldY).trim();
+  const params = new URLSearchParams({ a, c });
+  return `${location.origin}${location.pathname}?${params.toString()}`;
+}
+
+function openShareModal() {
+  const url = buildShareUrl();
+  shareUrlInput.value = url;
+  shareBackdrop.classList.add('open');
+  shareCopyBtn.classList.remove('copied');
+  shareCopyBtn.textContent = 'Copy link';
+  // Defer selection until after the modal is painted so the input has focus.
+  requestAnimationFrame(() => {
+    shareUrlInput.focus();
+    shareUrlInput.select();
+  });
+}
+
+function closeShareModal() {
+  shareBackdrop.classList.remove('open');
+}
+
+document.getElementById('share-btn').addEventListener('click', openShareModal);
+shareCloseBtn.addEventListener('click', closeShareModal);
+shareBackdrop.addEventListener('click', (e) => {
+  if (e.target === shareBackdrop) closeShareModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && shareBackdrop.classList.contains('open')) closeShareModal();
+});
+
+shareCopyBtn.addEventListener('click', async () => {
+  const url = shareUrlInput.value;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    // Fallback for browsers that block clipboard API outside a user gesture
+    // or over HTTP (this dev host is HTTP). execCommand is deprecated but
+    // still works in most browsers as a fallback.
+    shareUrlInput.select();
+    document.execCommand('copy');
+  }
+  shareCopyBtn.classList.add('copied');
+  shareCopyBtn.textContent = 'Copied!';
+  setTimeout(() => {
+    shareCopyBtn.classList.remove('copied');
+    shareCopyBtn.textContent = 'Copy link';
+  }, 1500);
+});
+
+if (typeof navigator.share === 'function') {
+  shareNativeBtn.classList.add('available');
+  shareNativeBtn.addEventListener('click', async () => {
+    const url = shareUrlInput.value;
+    const action = fieldValue(fieldX).trim();
+    const change = fieldValue(fieldY).trim();
+    try {
+      await navigator.share({
+        title: 'Theory of Change',
+        text: `Does "${action}" really lead to "${change}"?`,
+        url
+      });
+    } catch {
+      /* User cancelled or share unavailable — no-op */
+    }
+  });
+}
+
+// Auto-run analysis when the page is opened with ?a=…&c=… share parameters.
+(function autoRunFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const a = (params.get('a') || '').trim();
+  const c = (params.get('c') || '').trim();
+  if (!a || !c) return;
+  setFieldValue(fieldX, a);
+  setFieldValue(fieldY, c);
+  updateField(fieldX);
+  updateField(fieldY);
+  checkReady();
+  // Run after the current tick so all other DOMContentLoaded handlers settle.
+  setTimeout(() => { if (!btn.disabled) analyze(); }, 0);
+})();
+
+// When the user starts a fresh theory, also clear the URL so address-bar
+// state matches what's on screen.
+document.getElementById('reset-btn').addEventListener('click', () => {
+  if (location.search) {
+    history.replaceState({}, '', location.pathname);
+  }
+});
 </script>
 </body>
 </html>

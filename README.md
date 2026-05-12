@@ -6,7 +6,7 @@ A Claude-powered tool for stress-testing theories of change. Enter an action (X)
 
 ## What it does
 
-Given a theory of change, the app asks Claude (Opus 4.6) to return a single JSON object containing:
+Given a theory of change, the app asks Claude (Sonnet 4.6) to return a single JSON object containing:
 
 - **`strength`** — integer 0–100, plus a label (`Strong` / `Moderate` / `Weak` / `Speculative`)
 - **`summary`** — two-sentence overall read
@@ -22,8 +22,8 @@ The response is streamed via Server-Sent Events so the UI can render it incremen
 
 - **Backend:** Node 22, Express, `@anthropic-ai/sdk`
 - **Frontend:** single static `public/index.html` (no build step)
-- **Model:** `claude-opus-4-6`
-- **Deploy:** Dockerfile + `railway.toml` included
+- **Model:** `claude-sonnet-4-6`
+- **Deploy:** Dockerfile (Coolify-ready)
 
 ## Quick start
 
@@ -86,6 +86,15 @@ Errors are emitted as:
 data: {"error": "..."}
 ```
 
+## Operational guards
+
+To keep API spend predictable under public traffic, the server applies a few defaults:
+
+- **Rate limit:** 20 requests per 15 minutes per IP on `/api/analyze` (via `express-rate-limit`). Tunable in `server.js`.
+- **Input caps:** `action` and `change` are each limited to 200 characters, and the JSON body to 4 KB.
+- **Response cache:** identical `(action, change)` pairs (normalized lower-case) are served from an in-process LRU (1000 entries, 24 h TTL). Cached responses are replayed as a single SSE chunk. The cache is per-process — it does not survive restarts or span multiple replicas.
+- **`trust proxy`** is set to `1` so the rate limiter sees the real client IP behind Coolify's reverse proxy.
+
 ## Deploy
 
 ### Docker
@@ -95,9 +104,15 @@ docker build -t theory-of-change .
 docker run -p 3002:3002 -e ANTHROPIC_API_KEY=sk-ant-... theory-of-change
 ```
 
-### Railway
+### Coolify
 
-The included `railway.toml` sets the start command. Add `ANTHROPIC_API_KEY` (and optionally `AUTH_PASS`) as environment variables in the Railway dashboard and deploy.
+In your Coolify dashboard:
+
+1. **New Resource → Public/Private Repository** and point it at this repo.
+2. **Build Pack:** Dockerfile (auto-detected).
+3. **Environment Variables:** add `ANTHROPIC_API_KEY` (and optionally `AUTH_USER` / `AUTH_PASS`) — mark them as build/runtime as needed.
+4. **Network:** Coolify will detect the exposed port `3002`. Set a domain (or use the auto-generated one) and let Coolify provision the cert.
+5. **Deploy.** Subsequent pushes to the tracked branch redeploy automatically.
 
 ## Project layout
 
@@ -107,10 +122,9 @@ The included `railway.toml` sets the start command. Add `ANTHROPIC_API_KEY` (and
 ├── public/
 │   └── index.html     # Single-page UI
 ├── package.json
-├── Dockerfile
-└── railway.toml
+└── Dockerfile
 ```
 
 ## License
 
-No license specified — all rights reserved by the author. Open an issue if you'd like to use this in your own project.
+[MIT](LICENSE) © 2026 Matt Stempeck
