@@ -256,6 +256,7 @@
     margin-left: auto;
     margin-right: auto;
     line-height: 1.6;
+    text-align: left;
   }
 
   .diagram-summary p + p { margin-top: 0.8rem; }
@@ -1024,6 +1025,20 @@
     line-height: 1.55;
   }
 
+  .evens-footer__logo {
+    font-family: "UntitledSans-Medium", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 1.6rem;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.025em;
+    color: var(--text);
+    text-decoration: none;
+    display: inline-block;
+    margin-bottom: 1.75rem;
+  }
+
+  .evens-footer__logo:hover { color: #9c1335; }
+
   .evens-footer__addresses {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1335,6 +1350,7 @@
 
   <!-- Evens Foundation footer (duplicated from evensfoundation.eu) -->
   <footer class="evens-footer" aria-label="Evens Foundation">
+    <a class="evens-footer__logo" href="https://evensfoundation.eu" target="_blank" rel="noopener noreferrer">Evens<br>Foundation</a>
     <div class="evens-footer__addresses">
       <div class="evens-footer__address">
         <span class="evens-footer__city">Antwerp</span>
