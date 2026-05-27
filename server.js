@@ -175,7 +175,7 @@ Return ONLY valid JSON:
   }
 });
 
-const FEEDBACK_TO = 'matt.stempeck@evensfoundation.eu';
+const FEEDBACK_TO = process.env.FEEDBACK_TO || 'hello@evensfoundation.eu';
 const FEEDBACK_FROM = process.env.FEEDBACK_FROM || 'Theory of Change <onboarding@resend.dev>';
 const MAX_FEEDBACK_LEN = 4000;
 
