@@ -11,20 +11,6 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '4kb' }));
 
-// Basic auth — inline, no external package
-if (process.env.AUTH_PASS) {
-  const AUTH_USER = process.env.AUTH_USER || 'admin';
-  const AUTH_PASS = process.env.AUTH_PASS;
-  app.use((req, res, next) => {
-    const b64 = (req.headers.authorization || '').replace(/^Basic\s+/i, '');
-    if (b64) {
-      const [u, p] = Buffer.from(b64, 'base64').toString('utf8').split(':');
-      if (u === AUTH_USER && p === AUTH_PASS) return next();
-    }
-    res.set('WWW-Authenticate', 'Basic realm="Theory of Change"');
-    return res.status(401).end('Unauthorized');
-  });
-}
 
 app.use(express.static(join(__dirname, 'public')));
 
