@@ -164,8 +164,19 @@
     animation: field-cursor-blink 0.9s step-end infinite;
   }
 
+  /* Page load: blink cursor on X only */
   .field-wrap.x:not(.typing) .blink-cursor {
     display: inline-block;
+  }
+
+  /* Any focused field shows its own cursor */
+  .field-wrap.focused:not(.typing) .blink-cursor {
+    display: inline-block;
+  }
+
+  /* Suppress X's default cursor while any field in the headline has focus */
+  .headline:focus-within .field-wrap.x:not(.focused):not(.typing) .blink-cursor {
+    display: none;
   }
 
   .field-wrap.focused:not(.typing) .field {
