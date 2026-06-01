@@ -161,7 +161,7 @@ Return ONLY valid JSON:
   }
 });
 
-const FEEDBACK_TO = process.env.FEEDBACK_TO || 'hello@evensfoundation.eu';
+const FEEDBACK_TO = process.env.FEEDBACK_TO || '';
 const FEEDBACK_FROM = process.env.FEEDBACK_FROM || 'Theory of Change <onboarding@resend.dev>';
 const MAX_FEEDBACK_LEN = 4000;
 
@@ -193,8 +193,8 @@ app.post('/api/feedback', feedbackLimiter, async (req, res) => {
     return res.status(400).json({ error: 'That email address does not look valid.' });
   }
 
-  if (!process.env.RESEND_API_KEY) {
-    return res.status(500).json({ error: 'Feedback is not configured: RESEND_API_KEY is not set.' });
+  if (!process.env.RESEND_API_KEY || !FEEDBACK_TO) {
+    return res.status(500).json({ error: 'Feedback is not configured: RESEND_API_KEY and FEEDBACK_TO must be set.' });
   }
 
   try {
