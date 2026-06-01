@@ -153,6 +153,29 @@
     opacity: 0.45;
   }
 
+  /* Blinking cursor when the field is focused and empty */
+  .field:focus:empty {
+    caret-color: transparent;
+  }
+
+  .field:focus:empty::before {
+    content: '';
+    display: inline-block;
+    width: 2px;
+    height: 0.85em;
+    background: currentColor;
+    margin-right: 1px;
+    vertical-align: -0.08em;
+    animation: field-cursor-blink 0.9s step-end infinite;
+    font-style: normal;
+    opacity: 1;
+  }
+
+  @keyframes field-cursor-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
   .field-word {
     font-weight: 600;
     cursor: text;
@@ -582,6 +605,18 @@
     color: var(--x-color);
     font-style: italic;
     line-height: 1.45;
+  }
+
+  /* Connector between timeline items — visible only on mobile */
+  .tl-connector { display: none; }
+
+  .tl-conn-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2.5px solid #D4889A;
+    position: relative;
+    z-index: 1;
   }
 
   /* ─── Probing questions ──────────────────────────── */
@@ -1213,6 +1248,49 @@
     .results-actions { justify-content: flex-start; }
     .results-footer .footer-sep { display: none; }
     .results-footer { gap: 0.75rem 1.5rem; }
+
+    /* ── Timeline: mobile layout ─────────────────────────── */
+    /* Remove the desktop left-column layout entirely */
+    .timeline::before { display: none; }
+
+    .tl-item {
+      display: block;
+      margin-bottom: 0;
+    }
+
+    /* Year label sits above the card, full width */
+    .tl-period {
+      width: auto;
+      text-align: left;
+      padding-right: 0;
+      padding-bottom: 0.35rem;
+    }
+
+    /* Left-column spacer and desktop dot are no longer needed */
+    .tl-spacer,
+    .tl-dot { display: none; }
+
+    /* Card takes the full available width */
+    .tl-card { margin-left: 0; }
+
+    /* Show the between-item connector */
+    .tl-connector {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 2.25rem;
+      position: relative;
+    }
+
+    .tl-connector::before {
+      content: '';
+      position: absolute;
+      top: 0; bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 2px;
+      background: linear-gradient(to bottom, transparent, var(--border) 20%, var(--border) 80%, transparent);
+    }
   }
 
   /* ─── Landing page footer ───────────────────────── */
@@ -1258,6 +1336,17 @@
   .node-text-x { fill: var(--x-color); font-weight: 600; font-size: 13px; }
   .node-text-y { fill: var(--y-color); font-weight: 600; font-size: 13px; }
   .node-label { fill: #6B7280; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; }
+
+  @media (max-width: 640px) {
+    .diagram-svg .node-text-x,
+    .diagram-svg .node-text-y { font-size: 16px; }
+    .diagram-svg .node-label { font-size: 11px; }
+    .assumptions-hint .hover-hint { display: none; }
+    .assumptions-hint .tap-hint { display: inline; }
+  }
+  @media (min-width: 641px) {
+    .assumptions-hint .tap-hint { display: none; }
+  }
 
   /* ─── Related CTFG categories ──────────────────────── */
   .related-section {
@@ -1404,7 +1493,7 @@
 
   <!-- Assumptions -->
   <div class="section">
-    <h3>Hidden assumptions this theory rests on <span class="assumptions-hint">Hover to discover</span></h3>
+    <h3>Hidden assumptions this theory rests on <span class="assumptions-hint"><span class="hover-hint">Hover to discover</span><span class="tap-hint">Tap to discover</span></span></h3>
     <ul class="assumptions-list" id="assumptions-list"></ul>
   </div>
 
@@ -1803,8 +1892,54 @@ function svgWrappedText(text, x, cy, cls, charsPerLine = 16) {
 }
 
 // ─── SVG Diagram ──────────────────────────────────────────────────────────────
-function buildDiagram(action, change, strength, label) {
+function buildDiagram(action, change, strength, label, vertical = false) {
   const color = strengthColor(label);
+  const strokeW = Math.max(2.5, Math.round((strength / 100) * 14));
+  const opacity = 0.4 + (strength / 100) * 0.55;     // 0.4 → 0.95
+  const dash = label === 'Strong'   ? 'none'
+             : label === 'Moderate' ? '14 4'
+             : label === 'Weak'     ? '8 6'
+             :                        '4 8';          // Speculative
+
+  if (vertical) {
+    const nw = 220, nh = 110;
+    const W = 260, H = 340;
+    const cx = W / 2;
+    const topY = 20, botY = H - nh - 20;
+    const arrowStartY = topY + nh + 8;
+    const arrowEndY = botY - 8;
+    const headH = Math.max(12, strokeW * 1.4);
+    const headW = Math.max(10, strokeW * 1.2);
+    const tipY = arrowEndY + 2;
+    const baseY = tipY - headH;
+
+    return `<svg class="diagram-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">
+  <!-- Action node -->
+  <rect x="${cx - nw/2}" y="${topY}" width="${nw}" height="${nh}" rx="12" class="node-x"/>
+  <text x="${cx}" y="${topY + 22}" text-anchor="middle" class="node-label">ACTION</text>
+  ${svgWrappedText(action, cx, topY + 72, 'node-text-x', 20)}
+
+  <!-- Change node -->
+  <rect x="${cx - nw/2}" y="${botY}" width="${nw}" height="${nh}" rx="12" class="node-y"/>
+  <text x="${cx}" y="${botY + 22}" text-anchor="middle" class="node-label">CHANGE</text>
+  ${svgWrappedText(change, cx, botY + 72, 'node-text-y', 20)}
+
+  <!-- Connection: vertical arrow -->
+  <line
+    x1="${cx}" y1="${arrowStartY}"
+    x2="${cx}" y2="${baseY}"
+    stroke="${color}" stroke-width="${strokeW}"
+    stroke-dasharray="${dash}"
+    stroke-linecap="butt"
+    opacity="${opacity}"
+  />
+  <polygon
+    points="${cx - headW/2},${baseY} ${cx + headW/2},${baseY} ${cx},${tipY}"
+    fill="${color}" opacity="${opacity}"
+  />
+</svg>`;
+  }
+
   const nw = 180;
   const pad = 60;
   const W = 640, H = 160;
@@ -1812,15 +1947,6 @@ function buildDiagram(action, change, strength, label) {
   const cy = H / 2;
   const startX = lx + nw + 8;
   const endX = rx - 8;
-  // Strength is expressed entirely visually via the arrow: thickness, opacity,
-  // and dash density. No numeric badge — the strength score lives in the
-  // labelled badge under the diagram.
-  const strokeW = Math.max(2.5, Math.round((strength / 100) * 14));
-  const opacity = 0.4 + (strength / 100) * 0.55;     // 0.4 → 0.95
-  const dash = label === 'Strong'   ? 'none'
-             : label === 'Moderate' ? '14 4'
-             : label === 'Weak'     ? '8 6'
-             :                        '4 8';          // Speculative
 
   // Arrowhead drawn as a sibling polygon (not a stroke-scaled marker) so its
   // size is predictable. Line ends exactly at the arrowhead's base with butt
@@ -1882,8 +2008,9 @@ function renderDiagramSection(data, action, change) {
     .map(s => `<p>${s}</p>`)
     .join('');
 
+  const vertical = window.innerWidth < 640;
   document.getElementById('diagram').innerHTML = `
-    ${buildDiagram(action, change, data.strength, data.strength_label)}
+    ${buildDiagram(action, change, data.strength, data.strength_label, vertical)}
     <div class="strength-badge">
       <span class="strength-dot" style="background:${color}"></span>
       <span style="color:${color}">${data.strength_label} link</span>
@@ -1961,7 +2088,7 @@ document.addEventListener('click', async (e) => {
 
 function renderHistorySection(examples) {
   const sorted = (examples || []).slice().sort((a, b) => extractYear(a.period) - extractYear(b.period));
-  document.getElementById('history-list').innerHTML = sorted.map(h => `
+  const items = sorted.map(h => `
     <div class="tl-item">
       <div class="tl-period">${h.period}</div>
       <div class="tl-spacer"></div>
@@ -1972,7 +2099,9 @@ function renderHistorySection(examples) {
         <div class="tl-relevance">${h.relevance}</div>
       </div>
     </div>
-  `).join('');
+  `);
+  const connector = '<div class="tl-connector"><div class="tl-conn-dot"></div></div>';
+  document.getElementById('history-list').innerHTML = items.join(connector);
 }
 
 function renderQuestionsSection(questions, action, change) {
