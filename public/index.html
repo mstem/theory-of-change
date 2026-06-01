@@ -496,7 +496,7 @@
   .timeline::before {
     content: '';
     position: absolute;
-    left: 72px;
+    left: 80px;
     top: 0; bottom: 0;
     width: 2px;
     background: linear-gradient(to bottom, transparent, var(--border) 8%, var(--border) 92%, transparent);
@@ -573,7 +573,7 @@
 
   .tl-relevance {
     font-size: 0.78rem;
-    color: #6366F1;
+    color: var(--x-color);
     font-style: italic;
     line-height: 1.45;
   }
@@ -1930,7 +1930,6 @@ function renderQuestionsSection(questions, action, change) {
       </div>
       <div class="q-answer-wrap">
         <textarea class="q-answer" placeholder="Write your thinking here…" rows="4">${saved[i] || ''}</textarea>
-        <div class="q-saved">Auto-saves to this browser as you type</div>
       </div>
     </li>
   `).join('');
@@ -1943,12 +1942,8 @@ function renderQuestionsSection(questions, action, change) {
     function refreshSavedState(content) {
       if (content) {
         li.classList.add('answered');
-        savedMsg.classList.add('has-content');
-        savedMsg.textContent = 'Saved to this browser';
       } else {
         li.classList.remove('answered');
-        savedMsg.classList.remove('has-content');
-        savedMsg.textContent = 'Auto-saves to this browser as you type';
       }
     }
 
@@ -1962,8 +1957,6 @@ function renderQuestionsSection(questions, action, change) {
         all[i] = ta.value;
         localStorage.setItem(worksheetKey, JSON.stringify(all));
         refreshSavedState(ta.value);
-        savedMsg.classList.add('flash');
-        setTimeout(() => savedMsg.classList.remove('flash'), 900);
       }, 400);
     });
   });
