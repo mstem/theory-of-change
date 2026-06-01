@@ -153,22 +153,27 @@
     opacity: 0.45;
   }
 
-  /* Blinking cursor when the field is focused and empty */
-  .field:focus:empty {
-    caret-color: transparent;
-  }
-
-  .field:focus:empty::before {
-    content: '';
-    display: inline-block;
+  /* Blinking cursor — a real DOM span inserted before the field */
+  .blink-cursor {
+    display: none;
     width: 2px;
     height: 0.85em;
     background: currentColor;
-    margin-right: 1px;
     vertical-align: -0.08em;
+    margin-right: 2px;
     animation: field-cursor-blink 0.9s step-end infinite;
-    font-style: normal;
-    opacity: 1;
+  }
+
+  .field-wrap.focused:not(.typing) .blink-cursor {
+    display: inline-block;
+  }
+
+  .field-wrap.focused:not(.typing) .field {
+    caret-color: transparent;
+  }
+
+  .field-wrap.focused:not(.typing) .field::before {
+    opacity: 0;
   }
 
   @keyframes field-cursor-blink {
@@ -1849,6 +1854,15 @@ updateField(fieldX); updateField(fieldY);
       sel.addRange(range);
     }
   });
+});
+
+// Insert blinking cursor spans before each field, shown when focused and empty
+[fieldX, fieldY].forEach(f => {
+  const cursor = document.createElement('span');
+  cursor.className = 'blink-cursor';
+  f.parentElement.insertBefore(cursor, f);
+  f.addEventListener('focus', () => f.parentElement.classList.add('focused'));
+  f.addEventListener('blur',  () => f.parentElement.classList.remove('focused'));
 });
 
 function checkReady() {
