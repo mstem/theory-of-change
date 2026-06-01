@@ -264,7 +264,8 @@
     box-shadow: none;
   }
 
-  .cta:hover:not(:disabled) { background: var(--text); color: #fff; }
+  .cta:not(:disabled) { background: #940f30; color: #fff; border-color: #940f30; }
+  .cta:hover:not(:disabled) { background: #7a0c27; border-color: #7a0c27; }
   .cta:active:not(:disabled) { opacity: 0.85; }
   .cta:disabled { opacity: 0.35; cursor: not-allowed; }
 
@@ -1441,7 +1442,7 @@
         <ul class="suggestions" id="sug-x" role="listbox"></ul>
       </span>
     </span>
-    <span class="line"><span class="accent-y">create</span>
+    <span class="line">create
       <span class="field-wrap y" id="wrap-y">
         <span
           class="field"
