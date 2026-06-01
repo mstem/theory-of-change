@@ -96,7 +96,6 @@
   .hero-helper {
     font-size: 0.85rem;
     color: var(--muted);
-    opacity: 0.65;
     margin-bottom: 2rem;
   }
 
@@ -742,6 +741,39 @@
 
   .loading.visible { display: flex; }
 
+  .error-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    background: #FEF2F2;
+    border: 1px solid #FECACA;
+    border-radius: 10px;
+    color: #991B1B;
+    font-size: 0.875rem;
+    padding: 0.75rem 1rem;
+    margin: 1rem auto;
+    max-width: 860px;
+    box-sizing: border-box;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+
+  .error-banner[hidden] { display: none; }
+
+  #error-banner-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #991B1B;
+    font-size: 0.85rem;
+    padding: 0;
+    flex-shrink: 0;
+    opacity: 0.7;
+  }
+
+  #error-banner-close:hover { opacity: 1; }
+
   .spinner {
     width: 20px; height: 20px;
     border: 2px solid var(--border);
@@ -1178,6 +1210,9 @@
     .evens-footer { padding: 2rem 1.25rem 1.75rem; }
     .evens-footer__addresses { grid-template-columns: 1fr; }
     .evens-footer__links { flex-direction: column; align-items: flex-start; }
+    .results-actions { justify-content: flex-start; }
+    .results-footer .footer-sep { display: none; }
+    .results-footer { gap: 0.75rem 1.5rem; }
   }
 
   /* ─── Landing page footer ───────────────────────── */
@@ -1342,6 +1377,11 @@
 <div class="loading" id="loading">
   <div class="spinner"></div>
   Searching history, movements, and research…
+</div>
+
+<div class="error-banner" id="error-banner" role="alert" hidden>
+  <span id="error-banner-msg"></span>
+  <button type="button" id="error-banner-close" aria-label="Dismiss">✕</button>
 </div>
 
 <section id="results">
@@ -2158,6 +2198,7 @@ async function analyze() {
   if (!action || !change) return;
 
   // Shrink hero, show loader, reset progressive state
+  document.getElementById('error-banner').hidden = true;
   document.getElementById('hero').classList.add('shrunk');
   document.getElementById('results').classList.remove('visible');
   document.getElementById('loading').classList.add('visible');
@@ -2222,7 +2263,10 @@ async function analyze() {
     }
   } catch (err) {
     document.getElementById('loading').classList.remove('visible');
-    alert('Error: ' + err.message);
+    const msg = /input stream|network|fetch|failed to fetch/i.test(err.message)
+      ? 'The connection was interrupted. Please check your network and try again.'
+      : 'Something went wrong. Please try again.';
+    showErrorBanner(msg);
     btn.disabled = false;
     document.getElementById('hero').classList.remove('shrunk');
   }
@@ -2231,6 +2275,16 @@ async function analyze() {
 // Tiny helper to indicate the buffer has grown — we always re-try render after
 // any read(), since chunks arrive in arbitrary boundaries.
 function payload_chunk_arrived(buf) { return buf && buf.length > 0; }
+
+function showErrorBanner(msg) {
+  const banner = document.getElementById('error-banner');
+  document.getElementById('error-banner-msg').textContent = msg;
+  banner.hidden = false;
+}
+
+document.getElementById('error-banner-close').addEventListener('click', () => {
+  document.getElementById('error-banner').hidden = true;
+});
 
 // Scroll to #results, but wait for the hero's shrink transition to finish
 // first. Otherwise (e.g., on cached responses that arrive before the 600ms
