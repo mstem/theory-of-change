@@ -90,7 +90,14 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--muted);
-    margin-bottom: 2.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .hero-helper {
+    font-size: 0.85rem;
+    color: var(--muted);
+    opacity: 0.65;
+    margin-bottom: 2rem;
   }
 
   .headline {
@@ -688,6 +695,15 @@
   .q-saved.flash::before { background: var(--strong); }
 
   /* ─── Assumptions ─────────────────────────────────── */
+  .assumptions-hint {
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-left: 0.5rem;
+    vertical-align: middle;
+  }
   .assumptions-list {
     list-style: none;
     display: flex;
@@ -1281,6 +1297,7 @@
 
 <section class="hero" id="hero">
   <p class="eyebrow">Theory of Change</p>
+  <p class="hero-helper">Type in your strategy</p>
 
   <h1 class="headline">
     <span class="line">How will
@@ -1347,7 +1364,7 @@
 
   <!-- Assumptions -->
   <div class="section">
-    <h3>Hidden assumptions this theory rests on</h3>
+    <h3>Hidden assumptions this theory rests on <span class="assumptions-hint">Hover to discover</span></h3>
     <ul class="assumptions-list" id="assumptions-list"></ul>
   </div>
 

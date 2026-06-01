@@ -119,6 +119,8 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
 
 Be specific — cite real movements, researchers, and cases. Be concise: 1-2 sentences per field, short titles. Each array must have exactly 3 items.
 
+Score 70–100 as Strong if there is robust peer-reviewed evidence across multiple contexts; 40–69 as Moderate if evidence exists but is mixed or context-dependent; 10–39 as Weak if evidence is thin or contested; 0–9 as Speculative if there is little to no empirical basis.
+
 Return ONLY valid JSON:
 {
   "strength": <integer 0-100>,
