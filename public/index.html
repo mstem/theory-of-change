@@ -101,7 +101,7 @@
 
   .headline {
     font-size: clamp(2rem, 5.5vw, 4.5rem);
-    font-weight: 300;
+    font-weight: 400;
     line-height: 1.25;
     text-align: center;
     max-width: 900px;
@@ -123,7 +123,7 @@
   .field-wrap.x { color: var(--x-color); }
   .field-wrap.y { color: var(--y-color); }
 
-  .headline .accent-y { color: var(--y-color); font-weight: 600; }
+  .headline .accent-y { color: var(--y-color); }
 
   .field {
     /* Inline contenteditable span — flows naturally with the headline text,
@@ -1917,13 +1917,14 @@ function buildDiagram(action, change, strength, label, vertical = false) {
 
   if (vertical) {
     const nw = 220, nh = 110;
-    const W = 260, H = 340;
+    const W = 260, H = 510;
     const cx = W / 2;
     const topY = 20, botY = H - nh - 20;
     const arrowStartY = topY + nh + 8;
     const arrowEndY = botY - 8;
-    const headH = Math.max(12, strokeW * 1.4);
-    const headW = Math.max(10, strokeW * 1.2);
+    const vStrokeW = strokeW * 1.5;
+    const headH = Math.max(12, vStrokeW * 1.4);
+    const headW = Math.max(10, vStrokeW * 1.2);
     const tipY = arrowEndY + 2;
     const baseY = tipY - headH;
 
@@ -1931,18 +1932,18 @@ function buildDiagram(action, change, strength, label, vertical = false) {
   <!-- Action node -->
   <rect x="${cx - nw/2}" y="${topY}" width="${nw}" height="${nh}" rx="12" class="node-x"/>
   <text x="${cx}" y="${topY + 22}" text-anchor="middle" class="node-label">ACTION</text>
-  ${svgWrappedText(action, cx, topY + 72, 'node-text-x', 20)}
+  ${svgWrappedText(action, cx, topY + 56, 'node-text-x', 20)}
 
   <!-- Change node -->
   <rect x="${cx - nw/2}" y="${botY}" width="${nw}" height="${nh}" rx="12" class="node-y"/>
   <text x="${cx}" y="${botY + 22}" text-anchor="middle" class="node-label">CHANGE</text>
-  ${svgWrappedText(change, cx, botY + 72, 'node-text-y', 20)}
+  ${svgWrappedText(change, cx, botY + 56, 'node-text-y', 20)}
 
   <!-- Connection: vertical arrow -->
   <line
     x1="${cx}" y1="${arrowStartY}"
     x2="${cx}" y2="${baseY}"
-    stroke="${color}" stroke-width="${strokeW}"
+    stroke="${color}" stroke-width="${vStrokeW}"
     stroke-dasharray="${dash}"
     stroke-linecap="butt"
     opacity="${opacity}"
@@ -2389,6 +2390,7 @@ async function analyze() {
               document.getElementById('results').classList.add('visible');
               scrollToResults();
               resultsShown = true;
+              document.querySelector('.cta-hint').textContent = 'We found evidence, examples, and hard questions';
             }
             scheduleRelatedCategories(data, action, change);
           }
@@ -2401,6 +2403,7 @@ async function analyze() {
           document.getElementById('results').classList.add('visible');
           scrollToResults();
           resultsShown = true;
+          document.querySelector('.cta-hint').textContent = 'We found evidence, examples, and hard questions';
         }
       }
     }
