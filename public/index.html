@@ -5,19 +5,50 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Theory of Change</title>
 <style>
+  @font-face {
+    font-family: UntitledSans-Regular;
+    font-style: normal;
+    font-weight: 400;
+    src: url(https://evensfoundation.eu/assets/fonts/UntitledSans-Regular.eot);
+    src: url(https://evensfoundation.eu/assets/fonts/UntitledSans-Regular.eot?#iefix) format("embedded-opentype"),
+         url(https://evensfoundation.eu/assets/fonts/UntitledSans-Regular.woff) format("woff"),
+         url(https://evensfoundation.eu/assets/fonts/UntitledSans-Regular.ttf),
+         url(https://evensfoundation.eu/assets/fonts/UntitledSans-Regular.svg);
+  }
+  @font-face {
+    font-family: UntitledSans-RegularItalic;
+    font-style: normal;
+    font-weight: 400;
+    src: url(https://evensfoundation.eu/assets/fonts/UntitledSans-RegularItalic.eot);
+    src: url(https://evensfoundation.eu/assets/fonts/UntitledSans-RegularItalic.eot?#iefix) format("embedded-opentype"),
+         url(https://evensfoundation.eu/assets/fonts/UntitledSans-RegularItalic.woff) format("woff"),
+         url(https://evensfoundation.eu/assets/fonts/UntitledSans-RegularItalic.ttf),
+         url(https://evensfoundation.eu/assets/fonts/UntitledSans-RegularItalic.svg);
+  }
+  @font-face {
+    font-family: UntitledSans-Medium;
+    font-style: normal;
+    font-weight: 400;
+    src: url(https://evensfoundation.eu/assets/fonts/UntitledSans-Medium.eot);
+    src: url(https://evensfoundation.eu/assets/fonts/UntitledSans-Medium.eot?#iefix) format("embedded-opentype"),
+         url(https://evensfoundation.eu/assets/fonts/UntitledSans-Medium.woff) format("woff"),
+         url(https://evensfoundation.eu/assets/fonts/UntitledSans-Medium.ttf),
+         url(https://evensfoundation.eu/assets/fonts/UntitledSans-Medium.svg);
+  }
+
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
     --x-color: #2563EB;
-    --y-color: #7C3AED;
+    --y-color: #940f30;
     --strong: #16A34A;
     --moderate: #D97706;
     --weak: #DC2626;
     --speculative: #9CA3AF;
-    --bg: #FAFAF8;
-    --text: #111827;
+    --bg: #ffffff;
+    --text: #3a3a3a;
     --muted: #6B7280;
-    --border: #E5E7EB;
+    --border: #d8d5d6;
     --card: #FFFFFF;
   }
 
@@ -186,21 +217,21 @@
   }
 
   .cta {
-    background: var(--text);
-    color: #fff;
-    border: none;
-    border-radius: 100px;
+    background: transparent;
+    color: var(--text);
+    border: 1.5px solid var(--text);
+    border-radius: 4px;
     padding: 0.85rem 2.5rem;
     font-size: 1rem;
     font-weight: 600;
     cursor: pointer;
     letter-spacing: -0.01em;
-    transition: transform 0.15s, box-shadow 0.15s, opacity 0.2s;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    transition: background 0.15s, color 0.15s;
+    box-shadow: none;
   }
 
-  .cta:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(0,0,0,0.20); }
-  .cta:active:not(:disabled) { transform: translateY(0); }
+  .cta:hover:not(:disabled) { background: var(--text); color: #fff; }
+  .cta:active:not(:disabled) { opacity: 0.85; }
   .cta:disabled { opacity: 0.35; cursor: not-allowed; }
 
   .cta-hint { font-size: 0.8rem; color: var(--muted); }
@@ -301,15 +332,15 @@
     width: 2px;
     background: repeating-linear-gradient(
       to bottom,
-      #A5B4FC 0px, #A5B4FC 6px,
+      #D4889A 0px, #D4889A 6px,
       transparent 6px, transparent 10px
     );
   }
 
   .mechanism-bubble {
     flex: 1;
-    background: #F8F9FF;
-    border: 1.5px solid #C7D2FE;
+    background: #f7eff1;
+    border: 1.5px solid #EAB5BE;
     border-radius: 12px;
     padding: 0.75rem 1rem;
     font-size: 0.92rem;
@@ -321,11 +352,11 @@
     flex-shrink: 0;
     width: 28px; height: 28px;
     border-radius: 50%;
-    background: #EEF2FF;
-    border: 1.5px solid #C7D2FE;
+    background: #f7eff1;
+    border: 1.5px solid #EAB5BE;
     font-size: 0.72rem;
     font-weight: 700;
-    color: #4F46E5;
+    color: #940f30;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -501,7 +532,7 @@
     width: 16px; height: 16px;
     border-radius: 50%;
     background: #fff;
-    border: 2.5px solid #A5B4FC;
+    border: 2.5px solid #D4889A;
     margin: 2px 0 0 -1px; /* center on the 2px spine at left:72px */
     position: relative;
     z-index: 1;
@@ -520,8 +551,8 @@
   .tl-card {
     flex: 1;
     margin-left: 12px;
-    background: #FAFBFF;
-    border: 1px solid #E0E7FF;
+    background: #f7eff1;
+    border: 1px solid #EAB5BE;
     border-radius: 12px;
     padding: 0.75rem 1rem;
   }
@@ -598,7 +629,7 @@
     width: 22px;
     height: 22px;
     border-radius: 50%;
-    background: #EDE9FE;
+    background: #f7eff1;
     color: var(--y-color);
     font-size: 0.72rem;
     font-weight: 700;
@@ -614,7 +645,7 @@
   .q-answer {
     width: 100%;
     min-height: 84px;
-    border: 1.5px solid #E0E7FF;
+    border: 1.5px solid #d8d5d6;
     border-radius: 8px;
     padding: 0.6rem 0.75rem;
     font: inherit;
@@ -914,7 +945,7 @@
 
   .feedback-field {
     width: 100%;
-    border: 1.5px solid #E0E7FF;
+    border: 1.5px solid #d8d5d6;
     border-radius: 8px;
     padding: 0.65rem 0.85rem;
     font: inherit;
@@ -1037,7 +1068,7 @@
     margin-bottom: 1.75rem;
   }
 
-  .evens-footer__logo:hover { color: #9c1335; }
+  .evens-footer__logo:hover { color: #940f30; }
 
   .evens-footer__addresses {
     display: grid;
@@ -1062,7 +1093,7 @@
   }
 
   .evens-footer__email a {
-    color: #9c1335;
+    color: #940f30;
     text-decoration: none;
     opacity: 0.85;
     transition: opacity 0.15s;
@@ -1097,7 +1128,7 @@
     transition: color 0.15s;
   }
 
-  .evens-footer__policies a:hover { color: #9c1335; }
+  .evens-footer__policies a:hover { color: #940f30; }
 
   .evens-footer__socials { gap: 0.5rem 1rem; }
 
@@ -1111,17 +1142,17 @@
     transition: color 0.15s;
   }
 
-  .evens-footer__socials a:hover { color: #9c1335; }
+  .evens-footer__socials a:hover { color: #940f30; }
 
   .evens-footer__socials svg {
     width: 1rem;
     height: 1rem;
-    fill: #9c1335;
+    fill: #940f30;
     flex-shrink: 0;
   }
 
   .evens-footer__newsletter a {
-    color: #9c1335;
+    color: #940f30;
     opacity: 0.85;
   }
 
@@ -1133,9 +1164,46 @@
     .evens-footer__links { flex-direction: column; align-items: flex-start; }
   }
 
+  /* ─── Landing page footer ───────────────────────── */
+  .hero-footer {
+    position: absolute;
+    bottom: 1.5rem;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .hero.shrunk .hero-footer { display: none; }
+
+  .hero-footer__logo {
+    font-family: "UntitledSans-Medium", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 600;
+    color: var(--muted);
+    text-decoration: none;
+    letter-spacing: -0.01em;
+    transition: color 0.15s;
+  }
+
+  .hero-footer__logo:hover { color: #940f30; }
+
+  .hero-footer__sep { color: var(--border); }
+
+  .hero-footer__link {
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  .hero-footer__link:hover { color: var(--text); }
+
   /* ─── SVG nodes ──────────────────────────────────── */
   .node-x { fill: #EFF6FF; stroke: var(--x-color); stroke-width: 2; }
-  .node-y { fill: #F5F3FF; stroke: var(--y-color); stroke-width: 2; }
+  .node-y { fill: #f7eff1; stroke: var(--y-color); stroke-width: 2; }
   .node-text-x { fill: var(--x-color); font-weight: 600; font-size: 13px; }
   .node-text-y { fill: var(--y-color); font-weight: 600; font-size: 13px; }
   .node-label { fill: #6B7280; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; }
@@ -1165,8 +1233,8 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    background: #F8F9FF;
-    border: 1.5px solid #E0E7FF;
+    background: #f7eff1;
+    border: 1.5px solid #d8d5d6;
     border-radius: 12px;
     padding: 0.9rem 1rem 0.85rem;
     text-decoration: none;
@@ -1246,6 +1314,12 @@
     <button class="cta" id="analyze-btn" disabled>Explore this theory</button>
     <span class="cta-hint">We'll find evidence, examples, and hard questions</span>
   </div>
+
+  <footer class="hero-footer">
+    <a class="hero-footer__logo" href="https://evensfoundation.eu" target="_blank" rel="noopener noreferrer">Evens Foundation</a>
+    <span class="hero-footer__sep">·</span>
+    <a class="hero-footer__link" href="#" target="_blank" rel="noopener noreferrer">About this project</a>
+  </footer>
 </section>
 
 <div class="loading" id="loading">
