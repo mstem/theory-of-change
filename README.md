@@ -6,23 +6,24 @@ A Claude-powered tool for stress-testing theories of change. Enter an action (X)
 
 ## What it does
 
-Given a theory of change, the app asks Claude (Sonnet 4.6) to return a single JSON object containing:
+Given a theory of change, the app asks Claude (Opus 4.8) to return a single JSON object containing:
 
-- **`strength`** — integer 0–100, plus a label (`Strong` / `Moderate` / `Weak` / `Speculative`)
+- **`strength`** — integer 0–100
+- **`strength_label`** — `Strong` / `Moderate` / `Weak` / `Speculative`
 - **`summary`** — two-sentence overall read
+- **`assumptions`** — three load-bearing assumptions the theory depends on
 - **`mechanisms`** — three causal pathways from X to Y
 - **`evidence_for`** / **`evidence_against`** — three items each, with title, description, and source
 - **`historical_examples`** — three movements or cases with period, outcome, and relevance
 - **`probing_questions`** — three questions to pressure-test the theory
-- **`assumptions`** — three load-bearing assumptions the theory depends on
 
 The response is streamed via Server-Sent Events so the UI can render it incrementally.
 
 ## Stack
 
-- **Backend:** Node 22, Express, `@anthropic-ai/sdk`
+- **Backend:** Node 22, Express, `@anthropic-ai/sdk`, `resend`
 - **Frontend:** single static `public/index.html` (no build step)
-- **Model:** `claude-sonnet-4-6`
+- **Model:** `claude-opus-4-8` (overridable via `CLAUDE_MODEL`)
 - **Deploy:** Dockerfile (Coolify-ready)
 
 ## Quick start
@@ -50,6 +51,12 @@ ANTHROPIC_API_KEY=sk-ant-... npm run dev
 | `PORT` | no | `3002` | HTTP port |
 | `AUTH_USER` | no | `admin` | Username for HTTP Basic Auth (only enforced if `AUTH_PASS` is set) |
 | `AUTH_PASS` | no | — | If set, the entire app is gated behind Basic Auth |
+| `CLAUDE_MODEL` | no | `claude-opus-4-8` | Override the analysis model |
+| `FEEDBACK_TO` | no | — | Recipient email for in-app feedback submissions. Required to enable feedback. |
+| `FEEDBACK_FROM` | no | `Theory of Change <onboarding@resend.dev>` | Sender address for feedback emails |
+| `RESEND_API_KEY` | no | — | [Resend](https://resend.com) API key. Required alongside `FEEDBACK_TO` to enable feedback. |
+| `CURATOR_API_URL` | no | — | CTFG Curator API base URL; enables related-work recommendations |
+| `CURATOR_ORIGIN_HEADER` | no | — | `Origin` header sent to the Curator API (use if the API requires it) |
 
 Get an API key at <https://console.anthropic.com/>.
 
@@ -86,13 +93,80 @@ Errors are emitted as:
 data: {"error": "..."}
 ```
 
+### `POST /api/feedback`
+
+Sends a feedback message via email using [Resend](https://resend.com). Requires `RESEND_API_KEY` and `FEEDBACK_TO` to be set; returns a 500 error if either is missing.
+
+**Request body**
+
+```json
+{
+  "message": "This analysis missed X...",
+  "email": "optional@example.com"
+}
+```
+
+`email` is optional; if provided, it is set as `Reply-To` on the outgoing email. Message max 4,000 characters. Rate limited to 5 requests per IP per hour.
+
+**Response**
+
+```json
+{ "ok": true }
+```
+
+### `POST /api/source-url`
+
+Resolves a cited source name to a canonical URL, called lazily when a user clicks a source link. Uses `claude-haiku-4-5` to avoid slowing down the main streaming response. Results are cached in-process (2000 entries, 7-day TTL). Rate limited to 60 requests per 15 minutes per IP.
+
+**Request body**
+
+```json
+{
+  "source": "Erica Chenoweth",
+  "context": "Why Civil Resistance Works"
+}
+```
+
+`context` is optional — extra text to help disambiguate the source.
+
+**Response**
+
+```json
+{ "url": "https://..." }
+```
+
+Returns `{"url": ""}` if no confident match is found.
+
+### `POST /api/recommend`
+
+Returns related Civic Tech Field Guide categories for a given theory of change. Requires `CURATOR_API_URL` to be set; returns `{"categories": []}` silently if it is not.
+
+**Request body**
+
+```json
+{
+  "text": "organizing rent strikes will create stronger tenant protections",
+  "limit": 3
+}
+```
+
+`limit` is optional (1–3, default 3).
+
+**Response**
+
+```json
+{
+  "categories": ["Housing Justice", "Tenant Organizing", "Policy Advocacy"]
+}
+```
+
 ## Operational guards
 
 To keep API spend predictable under public traffic, the server applies a few defaults:
 
 - **Rate limit:** 20 requests per 15 minutes per IP on `/api/analyze` (via `express-rate-limit`). Tunable in `server.js`.
 - **Input caps:** `action` and `change` are each limited to 200 characters, and the JSON body to 4 KB.
-- **Response cache:** identical `(action, change)` pairs (normalized lower-case) are served from an in-process LRU (1000 entries, 24 h TTL). Cached responses are replayed as a single SSE chunk. The cache is per-process — it does not survive restarts or span multiple replicas.
+- **Response cache:** identical `(action, change)` pairs (normalized lower-case) are served from an in-process LRU (1000 entries, 24 h TTL). Cached responses are replayed as a single SSE chunk. The cache is persisted to `.cache/analyze-cache.json` and survives restarts, but does not span multiple replicas.
 - **`trust proxy`** is set to `1` so the rate limiter sees the real client IP behind Coolify's reverse proxy.
 
 ## Deploy
@@ -118,7 +192,7 @@ In your Coolify dashboard:
 
 ```
 .
-├── server.js          # Express server + /api/analyze SSE endpoint
+├── server.js          # Express server + API endpoints
 ├── public/
 │   └── index.html     # Single-page UI
 ├── package.json
