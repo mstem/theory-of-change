@@ -136,7 +136,7 @@ Return ONLY valid JSON:
 
   try {
     const stream = client.messages.stream({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-4-7',
       max_tokens: 2048,
       messages: [{ role: 'user', content: prompt }]
     });
