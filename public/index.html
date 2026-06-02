@@ -2204,8 +2204,8 @@ function renderResults(data, action, change) {
 // ─── Progressive render (streams sections as Claude emits them) ───────────────
 const SECTIONS_IN_ORDER = [
   'strength', 'strength_label', 'summary',
-  'mechanisms', 'evidence_for', 'evidence_against',
-  'historical_examples', 'probing_questions', 'assumptions'
+  'assumptions', 'mechanisms', 'evidence_for', 'evidence_against',
+  'historical_examples', 'probing_questions'
 ];
 let _renderedSections = new Set();
 let _partialData = {};

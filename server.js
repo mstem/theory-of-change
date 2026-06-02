@@ -126,12 +126,12 @@ Return ONLY valid JSON:
   "strength": <integer 0-100>,
   "strength_label": "<Strong | Moderate | Weak | Speculative>",
   "summary": "<2 sentences>",
+  "assumptions": ["<assumption>", ...x3],
   "mechanisms": ["<mechanism>", ...x3],
   "evidence_for": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>"}, ...x3],
   "evidence_against": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>"}, ...x3],
   "historical_examples": [{"name": "<movement>", "period": "<dates>", "outcome": "<1 sentence>", "relevance": "<1 sentence>"}, ...x3],
-  "probing_questions": ["<question>", ...x3],
-  "assumptions": ["<assumption>", ...x3]
+  "probing_questions": ["<question>", ...x3]
 }`;
 
   try {
