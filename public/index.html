@@ -2227,33 +2227,76 @@ function injectSkeletons() {
   document.getElementById('questions-list').innerHTML = liBar(22).repeat(3);
 }
 
+// Extract a complete JSON value for a top-level key from the raw buffer.
+// Returns the raw value string if complete, null if still streaming.
+// Uses balanced-bracket scanning so it never reads truncated content.
+function extractCompleteJsonValue(buf, key) {
+  const prefix = `"${key}"`;
+  let searchFrom = 0;
+  let keyIdx = -1;
+  while (searchFrom < buf.length) {
+    const idx = buf.indexOf(prefix, searchFrom);
+    if (idx < 0) break;
+    // Verify the char before the key (ignoring whitespace) is { or , — top-level field only.
+    let before = idx - 1;
+    while (before >= 0 && /\s/.test(buf[before])) before--;
+    if (before < 0 || buf[before] === '{' || buf[before] === ',') { keyIdx = idx; break; }
+    searchFrom = idx + prefix.length;
+  }
+  if (keyIdx < 0) return null;
+
+  let i = keyIdx + prefix.length;
+  while (i < buf.length && /\s/.test(buf[i])) i++;
+  if (i >= buf.length || buf[i] !== ':') return null;
+  i++;
+  while (i < buf.length && /\s/.test(buf[i])) i++;
+  if (i >= buf.length) return null;
+
+  const start = i;
+  const ch = buf[i];
+
+  if (ch === '[' || ch === '{') {
+    const close = ch === '[' ? ']' : '}';
+    let depth = 0, inStr = false;
+    for (; i < buf.length; i++) {
+      const c = buf[i];
+      if (c === '\\' && inStr) { i++; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (!inStr) {
+        if (c === ch) depth++;
+        else if (c === close) { depth--; if (depth === 0) return buf.slice(start, i + 1); }
+      }
+    }
+    return null;
+  } else if (ch === '"') {
+    i++;
+    for (; i < buf.length; i++) {
+      const c = buf[i];
+      if (c === '\\') { i++; continue; }
+      if (c === '"') return buf.slice(start, i + 1);
+    }
+    return null;
+  } else {
+    const match = buf.slice(i).match(/^(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)/);
+    return match ? match[0] : null;
+  }
+}
+
 function tryProgressiveRender(buffer, action, change) {
   const cleanBuf = buffer
     .replace(/^```(?:json)?\s*/, '')
     .replace(/```\s*$/, '');
-  let parsed;
-  try { parsed = parseJSON(cleanBuf); } catch { return false; }
-  if (!parsed || typeof parsed !== 'object') return false;
 
   let renderedAny = false;
   for (let i = 0; i < SECTIONS_IN_ORDER.length; i++) {
     const key = SECTIONS_IN_ORDER[i];
     if (_renderedSections.has(key)) continue;
-    if (!(key in parsed)) break; // sections render in order
-    // A section is "complete" when a later section's key appears in the buffer
-    // as a top-level JSON field (preceded by `,` not embedded in a string).
-    // For the LAST section, complete when buffer ends with closing `}`.
-    let isComplete = false;
-    for (let j = i + 1; j < SECTIONS_IN_ORDER.length; j++) {
-      const re = new RegExp(`,\\s*"${SECTIONS_IN_ORDER[j]}"\\s*:`);
-      if (re.test(cleanBuf)) { isComplete = true; break; }
-    }
-    if (!isComplete && i === SECTIONS_IN_ORDER.length - 1) {
-      isComplete = /\}\s*$/.test(cleanBuf.trim());
-    }
-    if (!isComplete) break;
+    const rawValue = extractCompleteJsonValue(cleanBuf, key);
+    if (!rawValue) break;
+    let sectionData;
+    try { sectionData = JSON.parse(rawValue); } catch { break; }
 
-    _partialData[key] = parsed[key];
+    _partialData[key] = sectionData;
     _renderedSections.add(key);
 
     // Render the section now that it's complete.
@@ -2361,15 +2404,12 @@ async function analyze() {
   const change = fieldValue(fieldY).trim();
   if (!action || !change) return;
 
-  // Shrink hero, show loader, reset progressive state
   document.getElementById('error-banner').hidden = true;
   document.getElementById('hero').classList.add('shrunk');
   document.getElementById('results').classList.remove('visible');
   document.getElementById('loading').classList.add('visible');
   btn.disabled = true;
   resetProgressiveState();
-  // Skeleton loaders fill each block until its real content streams in,
-  // so reordered/late-arriving sections don't sit blank.
   injectSkeletons();
 
   let buffer = '';
