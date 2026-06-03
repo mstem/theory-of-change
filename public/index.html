@@ -255,6 +255,17 @@
     background: #F3F4F6;
   }
 
+  @media (max-width: 640px) {
+    .suggestions {
+      min-width: 200px;
+    }
+    .suggestions li {
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+    }
+  }
+
   .suggestions li mark {
     background: none;
     font-weight: 700;
