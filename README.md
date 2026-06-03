@@ -139,7 +139,7 @@ Returns `{"url": ""}` if no confident match is found.
 
 ### `POST /api/recommend`
 
-Returns related Civic Tech Field Guide categories for a given theory of change. Requires `CURATOR_API_URL` to be set; returns `{"categories": []}` silently if it is not.
+Returns related Civic Tech Field Guide categories for a given theory of change. The recommendation block matches against categories, issues, and communities — so theories about gender, women, specific communities, or any of CTFG's 100+ issues will surface relevant results instead of going blank. Requires `CURATOR_API_URL` to be set; returns `{"categories": []}` silently if it is not.
 
 **Request body**
 
