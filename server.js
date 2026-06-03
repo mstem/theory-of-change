@@ -137,7 +137,7 @@ Return ONLY valid JSON:
   try {
     const stream = client.messages.stream({
       model: process.env.CLAUDE_MODEL || 'claude-opus-4-8',
-      max_tokens: 2048,
+      max_tokens: 4096,
       messages: [{ role: 'user', content: prompt }]
     });
 
