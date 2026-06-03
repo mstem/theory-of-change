@@ -304,7 +304,7 @@ Return ONLY valid JSON: {"url": "<https URL>"}
 // ─── Recommend proxy ──────────────────────────────────────────────────────────
 // Forwards page requests to the curator backend which talks to Claude + Airtable.
 // Keeps the curator URL and shared origin server-side, never exposed to the page.
-// Set CURATOR_API_URL (e.g. https://curator.fly.dev) and CURATOR_ORIGIN_HEADER
+// Set CURATOR_API_URL (e.g. https://curator.civictech.guide) and CURATOR_ORIGIN_HEADER
 // (must match one of curator's RECOMMEND_ALLOWED_ORIGINS values).
 const CURATOR_API_URL       = process.env.CURATOR_API_URL || '';
 const CURATOR_ORIGIN_HEADER = process.env.CURATOR_ORIGIN_HEADER || '';
