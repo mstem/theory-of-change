@@ -2660,13 +2660,18 @@ async function fetchRelatedCategories(text) {
       grid.innerHTML = '';
       return;
     }
-    grid.innerHTML = items.map(c => `
+    grid.innerHTML = items.map(c => {
+      const displayName = (c.type === 'issue' || c.type === 'community')
+        ? c.name.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+        : c.name;
+      return `
       <a class="related-card" href="${escapeHtml(c.softrUrl || '#')}" target="_blank" rel="noopener noreferrer">
-        <div class="related-card-name">${escapeHtml(c.name)}</div>
+        <div class="related-card-name">${escapeHtml(displayName)}</div>
         ${c.description ? `<div class="related-card-desc">${escapeHtml(c.description)}</div>` : ''}
         <span class="related-card-explore">Explore →</span>
       </a>
-    `).join('');
+    `;
+    }).join('');
   } catch (err) {
     console.warn('related-categories: fetch failed', err);
     section.hidden = true;
