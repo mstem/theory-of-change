@@ -2141,7 +2141,7 @@ function renderQuestionsSection(questions, action, change) {
         <span class="q-body">${q}</span>
       </div>
       <div class="q-answer-wrap">
-        <textarea class="q-answer" placeholder="Write your thinking here…" rows="4">${saved[i] || ''}</textarea>
+        <textarea id="q-answer-${i}" name="question_${i}" class="q-answer" placeholder="Write your thinking here…" rows="4">${saved[i] || ''}</textarea>
       </div>
     </li>
   `).join('');
@@ -2650,13 +2650,17 @@ async function fetchRelatedCategories(text) {
     clearTimeout(timeoutId);
     if (!res.ok) throw new Error('http ' + res.status);
     const payload = await res.json();
-    const cats = Array.isArray(payload.categories) ? payload.categories : [];
-    if (!cats.length || payload.dailyCapReached) {
+    const items = [
+      ...(Array.isArray(payload.categories)  ? payload.categories  : []),
+      ...(Array.isArray(payload.issues)       ? payload.issues      : []),
+      ...(Array.isArray(payload.communities)  ? payload.communities : []),
+    ];
+    if (!items.length || payload.dailyCapReached) {
       section.hidden = true;
       grid.innerHTML = '';
       return;
     }
-    grid.innerHTML = cats.map(c => `
+    grid.innerHTML = items.map(c => `
       <a class="related-card" href="${escapeHtml(c.softrUrl || '#')}" target="_blank" rel="noopener noreferrer">
         <div class="related-card-name">${escapeHtml(c.name)}</div>
         ${c.description ? `<div class="related-card-desc">${escapeHtml(c.description)}</div>` : ''}
