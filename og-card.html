@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200">
+<style>
+  @font-face {
+    font-family: UntitledSans;
+    font-weight: 400;
+    src: url(public/fonts/UntitledSans-Regular.woff) format("woff");
+  }
+  @font-face {
+    font-family: UntitledSans;
+    font-weight: 500;
+    src: url(public/fonts/UntitledSans-Medium.woff) format("woff");
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 1200px;
+    height: 630px;
+    overflow: hidden;
+    background: #ffffff;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 72px 80px 60px;
+    position: relative;
+    font-family: UntitledSans, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  }
+
+  /* Top-right accent bar */
+  .accent-bar {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 6px;
+    height: 100%;
+    background: #940f30;
+  }
+
+  /* Eyebrow */
+  .eyebrow {
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #9CA3AF;
+    margin-bottom: 28px;
+  }
+
+  /* Main headline */
+  .headline {
+    font-size: 68px;
+    font-weight: 400;
+    line-height: 1.2;
+    letter-spacing: -0.025em;
+    color: #3a3a3a;
+    max-width: 960px;
+  }
+
+  .headline .x {
+    color: #1e3a8a;
+    font-weight: 600;
+    text-decoration: underline solid #1e3a8a;
+    text-decoration-thickness: 4px;
+    text-underline-offset: 6px;
+  }
+
+  .headline .y {
+    color: #940f30;
+    font-weight: 600;
+    text-decoration: underline solid #940f30;
+    text-decoration-thickness: 4px;
+    text-underline-offset: 6px;
+  }
+
+  /* Sub-line */
+  .sub {
+    margin-top: 28px;
+    font-size: 21px;
+    color: #6B7280;
+    font-weight: 400;
+    line-height: 1.5;
+    max-width: 740px;
+  }
+
+  /* Bottom wordmark */
+  .wordmark {
+    position: absolute;
+    bottom: 44px;
+    left: 80px;
+    font-family: UntitledSans, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-weight: 500;
+    font-size: 18px;
+    color: #3a3a3a;
+    letter-spacing: -0.02em;
+  }
+
+  /* Divider */
+  .divider {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 6px;
+    height: 1px;
+    background: #e5e7eb;
+    bottom: 82px;
+  }
+</style>
+</head>
+<body>
+  <div class="accent-bar"></div>
+  <div class="divider"></div>
+
+  <p class="eyebrow">Theory of Change</p>
+
+  <h1 class="headline">
+    How will <span class="x">action</span><br>
+    create <span class="y">change</span><br>
+    in the world?
+  </h1>
+
+  <p class="sub">Enter your strategy. Get evidence, historical examples,<br>and hard questions to stress-test your thinking.</p>
+
+  <p class="wordmark">Evens Foundation</p>
+</body>
+</html>
