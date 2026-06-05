@@ -1,4 +1,5 @@
 import express from 'express';
+import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import Anthropic from '@anthropic-ai/sdk';
 import { Resend } from 'resend';
@@ -9,10 +10,17 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.set('trust proxy', 1);
+app.use(morgan('combined'));
 app.use(express.json({ limit: '4kb' }));
 
 
-app.use(express.static(join(__dirname, 'public')));
+app.use(express.static(join(__dirname, 'public'), {
+  setHeaders(res, filePath) {
+    if (/\.(woff2?|ttf|png|jpg|jpeg|svg|ico|webp)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=2592000');
+    }
+  }
+}));
 
 const MAX_INPUT_LEN = 200;
 const CACHE_MAX = 1000;
@@ -338,6 +346,14 @@ app.post('/api/recommend', async (req, res) => {
     console.warn('recommend proxy: error', err.message || err);
     return res.json({ categories: [] });
   }
+});
+
+// Bots send out-of-bounds Range headers; return 416 correctly but skip stderr logging.
+app.use((err, req, res, next) => {
+  if (err.status === 416) {
+    return res.status(416).set('Content-Range', res.getHeader('Content-Range') || 'bytes */*').end();
+  }
+  next(err);
 });
 
 const PORT = process.env.PORT || 3002;

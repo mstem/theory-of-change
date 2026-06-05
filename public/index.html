@@ -2199,6 +2199,7 @@ function renderAssumptionsSection(assumptions) {
   const aEl = document.getElementById('assumptions-list');
   aEl.innerHTML = (assumptions || []).map(a => `<li>${a}</li>`).join('');
   aEl.querySelectorAll('li').forEach(li => {
+    li.addEventListener('mouseenter', () => li.classList.add('revealed'));
     li.addEventListener('click', () => li.classList.toggle('revealed'));
   });
 }
