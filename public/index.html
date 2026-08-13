@@ -1933,7 +1933,7 @@ function svgWrappedText(text, x, cy, cls, charsPerLine = 16) {
   const totalH = lines.length * lineH;
   const startY = cy - totalH / 2 + lineH * 0.8;
   return lines.map((l, i) =>
-    `<text x="${x}" y="${startY + i * lineH}" text-anchor="middle" class="${cls}">${l}</text>`
+    `<text x="${x}" y="${startY + i * lineH}" text-anchor="middle" class="${cls}">${escapeHtml(l)}</text>`
   ).join('\n');
 }
 
@@ -2052,7 +2052,7 @@ function renderDiagramSection(data, action, change) {
   const summaryHtml = sentences
     .map(s => s.trim())
     .filter(Boolean)
-    .map(s => `<p>${s}</p>`)
+    .map(s => `<p>${escapeHtml(s)}</p>`)
     .join('');
 
   const vertical = window.innerWidth < 640;
@@ -2060,7 +2060,7 @@ function renderDiagramSection(data, action, change) {
     ${buildDiagram(action, change, data.strength, data.strength_label, vertical)}
     <div class="strength-badge">
       <span class="strength-dot" style="background:${color}"></span>
-      <span style="color:${color}">${data.strength_label} link</span>
+      <span style="color:${color}">${escapeHtml(data.strength_label || '')} link</span>
     </div>
     <div class="diagram-summary">${summaryHtml}</div>
   `;
@@ -2070,7 +2070,7 @@ function renderMechanismsSection(mechanisms) {
   document.getElementById('mechanisms-list').innerHTML = (mechanisms || []).map((m, i) => `
     <div class="mechanism-node">
       <div class="mechanism-num">${i + 1}</div>
-      <div class="mechanism-bubble">${m}</div>
+      <div class="mechanism-bubble">${escapeHtml(m)}</div>
     </div>
   `).join('');
 }
@@ -2137,13 +2137,13 @@ function renderHistorySection(examples) {
   const sorted = (examples || []).slice().sort((a, b) => extractYear(a.period) - extractYear(b.period));
   const items = sorted.map(h => `
     <div class="tl-item">
-      <div class="tl-period">${h.period}</div>
+      <div class="tl-period">${escapeHtml(h.period)}</div>
       <div class="tl-spacer"></div>
       <div class="tl-dot"></div>
       <div class="tl-card">
-        <div class="tl-name">${h.name}</div>
-        <div class="tl-outcome">${h.outcome}</div>
-        <div class="tl-relevance">${h.relevance}</div>
+        <div class="tl-name">${escapeHtml(h.name)}</div>
+        <div class="tl-outcome">${escapeHtml(h.outcome)}</div>
+        <div class="tl-relevance">${escapeHtml(h.relevance)}</div>
       </div>
     </div>
   `);
@@ -2159,10 +2159,10 @@ function renderQuestionsSection(questions, action, change) {
     <li data-i="${i}">
       <div class="q-text">
         <span class="q-num">${i + 1}</span>
-        <span class="q-body">${q}</span>
+        <span class="q-body">${escapeHtml(q)}</span>
       </div>
       <div class="q-answer-wrap">
-        <textarea id="q-answer-${i}" name="question_${i}" class="q-answer" placeholder="Write your thinking here…" rows="4">${saved[i] || ''}</textarea>
+        <textarea id="q-answer-${i}" name="question_${i}" class="q-answer" placeholder="Write your thinking here…" rows="4">${escapeHtml(saved[i] || '')}</textarea>
       </div>
     </li>
   `).join('');
@@ -2197,7 +2197,7 @@ function renderQuestionsSection(questions, action, change) {
 
 function renderAssumptionsSection(assumptions) {
   const aEl = document.getElementById('assumptions-list');
-  aEl.innerHTML = (assumptions || []).map(a => `<li>${a}</li>`).join('');
+  aEl.innerHTML = (assumptions || []).map(a => `<li>${escapeHtml(a)}</li>`).join('');
   aEl.querySelectorAll('li').forEach(li => {
     li.addEventListener('mouseenter', () => li.classList.add('revealed'));
     li.addEventListener('click', () => li.classList.toggle('revealed'));

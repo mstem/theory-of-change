@@ -162,11 +162,13 @@ Return ONLY valid JSON:
     });
 
     stream.on('error', (err) => {
-      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      console.error('analyze stream error:', err);
+      res.write(`data: ${JSON.stringify({ error: 'Analysis failed. Please try again.' })}\n\n`);
       res.end();
     });
   } catch (err) {
-    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+    console.error('analyze error:', err);
+    res.write(`data: ${JSON.stringify({ error: 'Analysis failed. Please try again.' })}\n\n`);
     res.end();
   }
 });
@@ -317,7 +319,15 @@ Return ONLY valid JSON: {"url": "<https URL>"}
 const CURATOR_API_URL       = process.env.CURATOR_API_URL || '';
 const CURATOR_ORIGIN_HEADER = process.env.CURATOR_ORIGIN_HEADER || '';
 
-app.post('/api/recommend', async (req, res) => {
+const recommendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { categories: [] }
+});
+
+app.post('/api/recommend', recommendLimiter, async (req, res) => {
   if (!CURATOR_API_URL) return res.json({ categories: [] });
   const text = typeof req.body?.text === 'string' ? req.body.text : '';
   if (!text.trim()) return res.json({ categories: [] });

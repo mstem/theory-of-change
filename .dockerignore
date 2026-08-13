@@ -1,0 +1,11 @@
+.env
+.git
+.gitignore
+node_modules
+.cache
+.remember
+.claude
+*.log
+README.md
+LICENSE
+og-card.html
