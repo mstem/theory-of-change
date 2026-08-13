@@ -1,0 +1,52 @@
+name: Daily smoke test
+
+# Checks the live deployment every morning: the page loads, both write routes
+# validate input, the model is reachable with a working API key, and the curator
+# backend is returning real recommendations.
+
+on:
+  schedule:
+    - cron: '0 7 * * *' # 08:00 Lisbon in winter, 08:00 UTC+1 in summer
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # No npm ci: the smoke script uses only Node built-ins, so there is nothing
+      # to install and nothing that can break the check by going stale.
+      - name: Run smoke test
+        run: node scripts/smoke.js | tee smoke.log
+        env:
+          SMOKE_URL: https://theory.evensfoundation.eu
+
+      - name: Write run summary
+        if: always()
+        run: |
+          echo '### Smoke test' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat smoke.log >> $GITHUB_STEP_SUMMARY || echo 'no output' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Alert on failure
+        if: failure()
+        env:
+          NTFY_URL: ${{ secrets.NTFY_URL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          DETAIL=$(grep '^FAIL' smoke.log | head -5 || echo 'The site did not respond at all.')
+          curl -sS -X POST "$NTFY_URL/$NTFY_TOPIC" \
+            -H "Authorization: Bearer $NTFY_TOKEN" \
+            -H "Title: Theory of Change is down" \
+            -H "Priority: urgent" \
+            -H "Tags: rotating_light" \
+            -H "Actions: view, Open site, https://theory.evensfoundation.eu; view, Open run, $RUN_URL" \
+            -d "$DETAIL"

@@ -1,0 +1,42 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Alert on failure
+        if: failure()
+        env:
+          NTFY_URL: ${{ secrets.NTFY_URL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          # Passed as env rather than interpolated into the shell: a branch name
+          # from a fork PR is attacker-controlled and would otherwise be injectable.
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          curl -sS -X POST "$NTFY_URL/$NTFY_TOPIC" \
+            -H "Authorization: Bearer $NTFY_TOKEN" \
+            -H "Title: Theory of Change: tests failed" \
+            -H "Priority: high" \
+            -H "Tags: rotating_light" \
+            -H "Actions: view, Open run, $RUN_URL" \
+            -d "Unit tests failed on $REF_NAME ($SHA)."

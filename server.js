@@ -4,13 +4,13 @@ import rateLimit from 'express-rate-limit';
 import Anthropic from '@anthropic-ai/sdk';
 import { Resend } from 'resend';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.set('trust proxy', 1);
-app.use(morgan('combined'));
+app.use(morgan('combined', { skip: () => process.env.NODE_ENV === 'test' }));
 app.use(express.json({ limit: '4kb' }));
 
 
@@ -27,7 +27,7 @@ const CACHE_MAX = 1000;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const cache = new Map();
 
-const CACHE_DIR = join(__dirname, '.cache');
+const CACHE_DIR = process.env.CACHE_DIR || join(__dirname, '.cache');
 const CACHE_FILE = join(CACHE_DIR, 'analyze-cache.json');
 
 function loadCacheFromDisk() {
@@ -62,6 +62,9 @@ function scheduleCacheSave() {
       console.warn('Cache save failed:', err.message);
     }
   }, 2000);
+  // The listening socket keeps the process alive in production, so unref only
+  // matters for short-lived processes (tests, scripts) that must be free to exit.
+  saveTimer.unref?.();
 }
 
 loadCacheFromDisk();
@@ -243,6 +246,19 @@ const sourceUrlCache = new Map();
 const MAX_SOURCE_LEN = 200;
 const MAX_CONTEXT_LEN = 600;
 
+// Pulls the URL out of the model's reply. Returns '' for anything that is not a
+// well-formed http(s) URL, so a malformed reply degrades to "no link" not a crash.
+function parseSourceUrl(text) {
+  const jsonStr = String(text ?? '').match(/\{[\s\S]*\}/)?.[0] || '{}';
+  try {
+    const parsed = JSON.parse(jsonStr);
+    if (typeof parsed.url === 'string' && /^https?:\/\//i.test(parsed.url.trim())) {
+      return parsed.url.trim();
+    }
+  } catch { /* fall through with empty url */ }
+  return '';
+}
+
 const sourceUrlLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 60,
@@ -289,15 +305,7 @@ Return ONLY valid JSON: {"url": "<https URL>"}
       max_tokens: 200,
       messages: [{ role: 'user', content: prompt }]
     });
-    const text = msg.content?.[0]?.text || '';
-    const jsonStr = text.match(/\{[\s\S]*\}/)?.[0] || '{}';
-    let url = '';
-    try {
-      const parsed = JSON.parse(jsonStr);
-      if (typeof parsed.url === 'string' && /^https?:\/\//i.test(parsed.url.trim())) {
-        url = parsed.url.trim();
-      }
-    } catch { /* fall through with empty url */ }
+    const url = parseSourceUrl(msg.content?.[0]?.text || '');
 
     if (sourceUrlCache.size >= SOURCE_URL_CACHE_MAX) {
       const oldest = sourceUrlCache.keys().next().value;
@@ -366,5 +374,16 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
-const PORT = process.env.PORT || 3002;
-app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
+// Only bind a port when run directly (`npm start`). Importing this module for
+// tests gives you `app` without a listening socket or a hardcoded port.
+// import.meta.main needs Node >= 24.2 and the container still runs Node 22,
+// where it is `undefined` — the argv fallback keeps the server listening there.
+const isEntryPoint = import.meta.main
+  ?? (!!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url));
+
+if (isEntryPoint) {
+  const PORT = process.env.PORT || 3002;
+  app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
+}
+
+export { app, escapeHtml, parseSourceUrl, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
