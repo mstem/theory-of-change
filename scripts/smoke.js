@@ -88,10 +88,14 @@ await check('analyze streams a real response from the model', async () => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
+    // Date-stamped so each day's run misses the server's 24h cache and actually
+    // reaches the model. A fixed string would be replayed from cache and would
+    // keep passing long after the API key expired — the opposite of the point.
+    const today = new Date().toISOString().slice(0, 10);
     const res = await fetch(`${BASE}/api/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'daily uptime check', change: 'a working service' }),
+      body: JSON.stringify({ action: `daily uptime check ${today}`, change: 'a working service' }),
       signal: controller.signal,
     });
     expect(res.status === 200, `expected 200, got ${res.status}`);
