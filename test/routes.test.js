@@ -225,3 +225,11 @@ test('HSTS is only sent over TLS', async () => {
   const forwarded = await fetch(`${BASE}/`, { headers: { 'X-Forwarded-Proto': 'https' } });
   assert.match(forwarded.headers.get('strict-transport-security'), /max-age=31536000/);
 });
+
+test('the favicon is served rather than 404ing', async () => {
+  for (const path of ['/favicon.ico', '/favicon.svg', '/apple-touch-icon.png']) {
+    const res = await fetch(`${BASE}${path}`);
+    assert.equal(res.status, 200, `${path} should be served`);
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=2592000');
+  }
+});
