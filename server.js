@@ -6,12 +6,60 @@ import { Resend } from 'resend';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { createHash } from 'crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.set('trust proxy', 1);
 app.use(morgan('combined', { skip: () => process.env.NODE_ENV === 'test' }));
 app.use(express.json({ limit: '4kb' }));
+
+// The page ships two inline <script> blocks (the analytics bootstrap and the app
+// itself), so script-src carries their sha256 hashes. Hashing index.html at boot
+// instead of pasting literal hashes means the policy cannot go stale when the
+// page changes. Inline style attributes are generated in the render path (bar
+// heights, strength colours), which no hash can cover, so style-src keeps
+// 'unsafe-inline'; script execution stays blocked either way.
+function inlineScriptHashes(html) {
+  const inlineScript = /<script\b(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script>/gi;
+  return [...html.matchAll(inlineScript)].map(
+    ([, body]) => `'sha256-${createHash('sha256').update(body, 'utf8').digest('base64')}'`
+  );
+}
+
+function buildCsp(html) {
+  return [
+    "default-src 'self'",
+    `script-src 'self' ${inlineScriptHashes(html).join(' ')} https://www.googletagmanager.com`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: https://www.googletagmanager.com https://*.google-analytics.com",
+    "font-src 'self'",
+    "connect-src 'self' https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "object-src 'none'"
+  ].join('; ');
+}
+
+let csp = '';
+try {
+  csp = buildCsp(readFileSync(join(__dirname, 'public', 'index.html'), 'utf8'));
+} catch (err) {
+  console.warn('CSP build failed, serving without one:', err.message);
+}
+
+app.use((req, res, next) => {
+  if (csp) res.setHeader('Content-Security-Policy', csp);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  // Only over TLS: on plain-HTTP local dev the header is meaningless, and
+  // pinning it there would break running the app on http://localhost.
+  if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
 
 
 app.use(express.static(join(__dirname, 'public'), {
@@ -386,4 +434,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, escapeHtml, parseSourceUrl, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, buildCsp, inlineScriptHashes, escapeHtml, parseSourceUrl, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };

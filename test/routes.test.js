@@ -14,7 +14,7 @@ delete process.env.RESEND_API_KEY;
 delete process.env.CURATOR_API_URL;
 delete process.env.FEEDBACK_TO;
 
-const { app } = await import('../server.js');
+const { app, inlineScriptHashes } = await import('../server.js');
 
 const server = app.listen(0);
 await once(server, 'listening');
@@ -197,4 +197,31 @@ test('an unknown path 404s', async () => {
 test('an out-of-bounds Range header returns 416 and not a crash', async () => {
   const res = await fetch(`${BASE}/og-image.png`, { headers: { Range: 'bytes=999999999-1000000000' } });
   assert.equal(res.status, 416);
+});
+
+test('every response carries the security headers', async () => {
+  const res = await fetch(`${BASE}/`);
+  const csp = res.headers.get('content-security-policy');
+  assert.match(csp, /script-src 'self' 'sha256-/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(res.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+  assert.equal(res.headers.get('x-frame-options'), 'DENY');
+});
+
+test('the CSP hashes match the inline scripts actually shipped in the page', async () => {
+  const res = await fetch(`${BASE}/`);
+  const html = await res.text();
+  const csp = res.headers.get('content-security-policy');
+  const hashes = inlineScriptHashes(html);
+  assert.ok(hashes.length > 0, 'index.html should still have inline scripts');
+  for (const hash of hashes) assert.ok(csp.includes(hash), `CSP is missing ${hash}`);
+});
+
+test('HSTS is only sent over TLS', async () => {
+  const plain = await fetch(`${BASE}/`);
+  assert.equal(plain.headers.get('strict-transport-security'), null);
+  // `trust proxy` is on, so the proxy header is what makes req.secure true.
+  const forwarded = await fetch(`${BASE}/`, { headers: { 'X-Forwarded-Proto': 'https' } });
+  assert.match(forwarded.headers.get('strict-transport-security'), /max-age=31536000/);
 });

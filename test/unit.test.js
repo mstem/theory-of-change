@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -10,6 +11,8 @@ const CACHE_FILE = join(TMP_CACHE_DIR, 'analyze-cache.json');
 process.env.CACHE_DIR = TMP_CACHE_DIR;
 
 const {
+  buildCsp,
+  inlineScriptHashes,
   escapeHtml,
   parseSourceUrl,
   cacheGet,
@@ -205,4 +208,42 @@ test('loadCacheFromDisk is a no-op when the cache file does not exist', () => {
   rmSync(CACHE_FILE, { force: true });
   assert.doesNotThrow(() => loadCacheFromDisk());
   assert.equal(cache.size, 0);
+});
+
+// ─── CSP ──────────────────────────────────────────────────────────────────────
+
+test('inlineScriptHashes hashes inline scripts and skips ones with a src', () => {
+  const html = `
+    <script async src="https://example.com/a.js"></script>
+    <script>console.log(1);</script>
+    <script type="text/javascript">console.log(2);</script>
+  `;
+  const hashes = inlineScriptHashes(html);
+  assert.equal(hashes.length, 2);
+  for (const h of hashes) assert.match(h, /^'sha256-[A-Za-z0-9+/]+={0,2}'$/);
+});
+
+test('inlineScriptHashes hashes the exact script body', () => {
+  const body = 'console.log(1);';
+  const expected = createHash('sha256').update(body, 'utf8').digest('base64');
+  assert.deepEqual(inlineScriptHashes(`<script>${body}</script>`), [`'sha256-${expected}'`]);
+});
+
+test('inlineScriptHashes returns nothing when every script is external', () => {
+  assert.deepEqual(inlineScriptHashes('<script src="/app.js"></script>'), []);
+});
+
+test('buildCsp puts every inline hash in script-src and blocks framing', () => {
+  const csp = buildCsp('<script>a()</script><script>b()</script>');
+  const scriptSrc = csp.split('; ').find((d) => d.startsWith('script-src'));
+  assert.equal((scriptSrc.match(/'sha256-/g) || []).length, 2);
+  assert.match(csp, /default-src 'self'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /object-src 'none'/);
+});
+
+test('the shipped index.html has no inline event handlers, which no hash could cover', () => {
+  const html = readFileSync(join(import.meta.dirname, '..', 'public', 'index.html'), 'utf8');
+  const handlerInMarkup = /<[a-z][^>]*\son[a-z]+\s*=\s*["']/i;
+  assert.equal(handlerInMarkup.test(html), false);
 });
