@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,6 +9,22 @@ import { join } from 'node:path';
 // every credential the server checks for is cleared before it is imported.
 const TMP_CACHE_DIR = mkdtempSync(join(tmpdir(), 'toc-routes-'));
 process.env.CACHE_DIR = TMP_CACHE_DIR;
+
+// A stand-in right-to-left translation, written before the server is imported.
+// It only has to be complete and valid; the words are irrelevant to the tests.
+const reference = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'locales', 'en.json'), 'utf8'));
+const STUB_LOCALE = 'ar';
+const STUB_TITLE = 'STUB TITLE RTL';
+mkdirSync(join(TMP_CACHE_DIR, 'locales'), { recursive: true });
+writeFileSync(
+  join(TMP_CACHE_DIR, 'locales', `${STUB_LOCALE}.json`),
+  JSON.stringify({
+    ...Object.fromEntries(Object.entries(reference).filter(([key]) => key !== '_meta')),
+    _meta: { language: STUB_LOCALE, dir: 'rtl', charWidthFactor: 1 },
+    'meta.title': STUB_TITLE,
+    'headline.template': 'STUB {X} STUB {Y} STUB'
+  })
+);
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.RESEND_API_KEY;
 delete process.env.CURATOR_API_URL;
@@ -164,7 +180,9 @@ test('recommend returns an empty result for a missing body', async () => {
 // ─── Static assets ────────────────────────────────────────────────────────────
 
 test('the homepage is served', async () => {
-  const res = await fetch(`${BASE}/`);
+  // Asks for English explicitly: the title is translated now, so a test that
+  // relied on the default would break the day a bundle matched the runner.
+  const res = await fetch(`${BASE}/`, { headers: { 'Accept-Language': 'en' } });
   assert.equal(res.status, 200);
   const html = await res.text();
   assert.match(html, /<title>/i);
@@ -192,6 +210,95 @@ test('HTML is not given the long-lived cache header', async () => {
 test('an unknown path 404s', async () => {
   const res = await fetch(`${BASE}/no-such-page`);
   assert.equal(res.status, 404);
+});
+
+// ─── GET / localization ───────────────────────────────────────────────────────
+
+test('the homepage declares the language and direction it was rendered in', async () => {
+  const res = await fetch(`${BASE}/`, { headers: { 'Accept-Language': 'en' } });
+  const html = await res.text();
+  assert.match(html, /<html lang="en" dir="ltr">/);
+});
+
+test('the homepage varies on the headers that chose the language', async () => {
+  // Both inputs are request headers, so without this a shared cache in front
+  // of the app would serve one visitor's language to the next.
+  const res = await fetch(`${BASE}/`);
+  const vary = res.headers.get('vary') ?? '';
+  assert.match(vary, /Accept-Language/i);
+  assert.match(vary, /Cookie/i);
+});
+
+test('a translated bundle changes the language, direction and title', async () => {
+  const res = await fetch(`${BASE}/`, { headers: { 'Accept-Language': STUB_LOCALE } });
+  const html = await res.text();
+  assert.match(html, new RegExp(`<html lang="${STUB_LOCALE}" dir="rtl">`));
+  assert.ok(html.includes(STUB_TITLE), 'the translated title should be in the served page');
+  assert.match(html, new RegExp(`<meta property="og:locale" content="${STUB_LOCALE}">`));
+});
+
+test('a region is dropped when choosing the bundle', async () => {
+  // pt-PT and pt-BR share one translation, which is what bounds the number of
+  // bundles to languages rather than to tags.
+  const res = await fetch(`${BASE}/`, { headers: { 'Accept-Language': `${STUB_LOCALE}-EG,${STUB_LOCALE};q=0.9` } });
+  assert.match(await res.text(), new RegExp(`<html lang="${STUB_LOCALE}" dir="rtl">`));
+});
+
+test('a language with no bundle falls back to English rather than failing', async () => {
+  for (const header of ['ja', 'xx', 'zz-ZZ', '', 'not a header', '*']) {
+    const res = await fetch(`${BASE}/`, { headers: { 'Accept-Language': header } });
+    assert.equal(res.status, 200, `${header} should still serve`);
+    assert.match(await res.text(), /<html lang="en" dir="ltr">/, `${header} should fall back`);
+  }
+});
+
+test('an explicit choice in the query string or a cookie wins over the header', async () => {
+  const viaQuery = await fetch(`${BASE}/?lang=${STUB_LOCALE}`, { headers: { 'Accept-Language': 'en' } });
+  assert.match(await viaQuery.text(), new RegExp(`<html lang="${STUB_LOCALE}"`));
+
+  const viaCookie = await fetch(`${BASE}/`, {
+    headers: { 'Accept-Language': 'en', Cookie: `locale_pref=lang%3D${STUB_LOCALE}` }
+  });
+  assert.match(await viaCookie.text(), new RegExp(`<html lang="${STUB_LOCALE}"`));
+});
+
+test('a hostile language parameter cannot reach outside the locales directory', async () => {
+  for (const lang of ['../../etc/passwd', '..%2F..%2Fetc', 'en/../../x', 'a'.repeat(200)]) {
+    const res = await fetch(`${BASE}/?lang=${encodeURIComponent(lang)}`);
+    assert.equal(res.status, 200, `${lang} should not error`);
+    assert.match(await res.text(), /<html lang="en" dir="ltr">/, `${lang} should fall back to English`);
+  }
+});
+
+test('the string bundle ships as a data block the page can parse', async () => {
+  const res = await fetch(`${BASE}/`, { headers: { 'Accept-Language': STUB_LOCALE } });
+  const html = await res.text();
+  const match = /<script type="application\/json" id="i18n">([\s\S]*?)<\/script>/.exec(html);
+  assert.ok(match, 'the i18n data block should be in the page');
+  const payload = JSON.parse(match[1]);
+  assert.equal(payload.locale.tag, STUB_LOCALE);
+  assert.equal(payload.locale.dir, 'rtl');
+  assert.equal(payload.strings['meta.title'], STUB_TITLE);
+  assert.match(payload.strings['headline.template'], /\{X\}/);
+});
+
+test('the data block is not hashed into the policy, because it never executes', async () => {
+  // The whole reason the page can be rendered per request: a hash taken from
+  // the file at boot could never match a block built per response.
+  const res = await fetch(`${BASE}/`, { headers: { 'Accept-Language': STUB_LOCALE } });
+  const html = await res.text();
+  const csp = res.headers.get('content-security-policy');
+  const hashes = inlineScriptHashes(html);
+  assert.equal(hashes.length, 1, 'only the analytics bootstrap should be hashed');
+  for (const hash of hashes) assert.ok(csp.includes(hash), `CSP is missing ${hash}`);
+});
+
+test('index.html serves the same rendered page as /', async () => {
+  const [root, explicit] = await Promise.all([
+    fetch(`${BASE}/`, { headers: { 'Accept-Language': STUB_LOCALE } }).then((r) => r.text()),
+    fetch(`${BASE}/index.html`, { headers: { 'Accept-Language': STUB_LOCALE } }).then((r) => r.text())
+  ]);
+  assert.equal(root, explicit);
 });
 
 test('an out-of-bounds Range header returns 416 and not a crash', async () => {
