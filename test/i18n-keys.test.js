@@ -89,6 +89,57 @@ test('every string the markup carries as fallback matches the bundle', () => {
   assert.deepEqual(mismatched, [], mismatched.join(' | '));
 });
 
+test('every English fallback in the script matches the bundle it stands in for', () => {
+  // The script keeps an English literal beside each lookup, as
+  // t('source.notFound') || 'no source found', so the page still reads
+  // correctly before the bundle is applied or if a key goes missing. When the
+  // literal and the bundle disagree, nothing fails: which one the reader sees
+  // depends on whether the bundle has loaded yet.
+  //
+  // That is not hypothetical. A copy change landed in app.js ('looking up…'
+  // became 'Getting you the precise link') while the locales/en.json half went
+  // in separately, and for a while the two disagreed silently.
+  const pattern = /t\('([a-zA-Z.]+)'(?:,[^)]*)?\)\s*\|\|\s*'((?:[^'\\]|\\.)*)'/g;
+  const drift = [];
+  let checked = 0;
+
+  for (const [, key, literal] of script.matchAll(pattern)) {
+    if (!(key in bundle)) continue;
+    checked += 1;
+    // The source carries an escape sequence where the bundle carries the
+    // character, so compare what they each mean rather than how they are typed.
+    const meant = literal.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    if (meant !== bundle[key]) drift.push(`${key}: script has "${meant}", bundle has "${bundle[key]}"`);
+  }
+
+  assert.ok(checked >= 15, `expected the fallbacks to be found, matched only ${checked}`);
+  assert.deepEqual(drift, [], drift.join(' | '));
+});
+
+test('the fallback pattern still describes how the script reads strings', () => {
+  // The test above is a source scan, so it passes vacuously if the idiom is
+  // ever refactored away. This pins the idiom itself: were every lookup
+  // rewritten, the count would drop and the drift check above would quietly
+  // stop checking anything.
+  const lookups = [...script.matchAll(/\bt\(\s*'[a-zA-Z.]+'/g)].length;
+  const withFallback = [...script.matchAll(/t\('[a-zA-Z.]+'(?:,[^)]*)?\)\s*\|\|/g)].length;
+  assert.ok(lookups >= 20, `expected the script to look strings up by key, found ${lookups}`);
+  assert.ok(
+    withFallback >= 15,
+    `expected most lookups to carry an English fallback, found ${withFallback} of ${lookups}`
+  );
+});
+
+test('the one fallback the scan cannot compare is built from the bundle anyway', () => {
+  // strength.linkLabel is the exception: it is reached through a dynamic key
+  // and its fallback is a template literal, so no source scan can compare it.
+  // What matters is that the label is translated before being wrapped, so
+  // assert the shape rather than skipping it silently.
+  assert.match(script, /t\(`strength\.\$\{label\}`\)/);
+  assert.match(script, /t\('strength\.linkLabel', \{ label: translated \}\)/);
+  assert.match(bundle['strength.linkLabel'], /\{label\}/);
+});
+
 test('the headline template in the bundle is one the renderer accepts', () => {
   const template = bundle['headline.template'];
   assert.equal((template.match(/\{X\}/g) || []).length, 1);
