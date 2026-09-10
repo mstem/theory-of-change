@@ -1460,65 +1460,60 @@
 <body>
 
 <section class="hero" id="hero">
-  <p class="eyebrow">Theory of Change</p>
-  <p class="hero-helper">Type in your strategy</p>
+  <p class="eyebrow" data-i18n="hero.eyebrow">Theory of Change</p>
+  <p class="hero-helper" data-i18n="hero.helper">Type in your strategy</p>
 
-  <h1 class="headline">
-    <span class="line">How will
-      <span class="field-wrap x" id="wrap-x">
-        <span
-          class="field"
-          id="field-x"
-          contenteditable="plaintext-only"
-          data-placeholder="x"
-          spellcheck="false"
-        ></span><span class="field-word">action</span>
-        <ul class="suggestions" id="sug-x" role="listbox"></ul>
-      </span>
+  <h1 class="headline" id="headline">
+    <span class="field-wrap x" id="wrap-x">
+      <span
+        class="field"
+        id="field-x"
+        contenteditable="plaintext-only"
+        data-placeholder="x"
+        spellcheck="false"
+      ></span><span class="field-word" id="word-x">action</span>
+      <ul class="suggestions" id="sug-x" role="listbox"></ul>
     </span>
-    <span class="line">create
-      <span class="field-wrap y" id="wrap-y">
-        <span
-          class="field"
-          id="field-y"
-          contenteditable="plaintext-only"
-          data-placeholder="y"
-          spellcheck="false"
-        ></span><span class="field-word">change</span>
-        <ul class="suggestions" id="sug-y" role="listbox"></ul>
-      </span>
+    <span class="field-wrap y" id="wrap-y">
+      <span
+        class="field"
+        id="field-y"
+        contenteditable="plaintext-only"
+        data-placeholder="y"
+        spellcheck="false"
+      ></span><span class="field-word" id="word-y">change</span>
+      <ul class="suggestions" id="sug-y" role="listbox"></ul>
     </span>
-    <span class="line">in the world?</span>
   </h1>
 
   <div class="cta-wrap">
-    <button class="cta" id="analyze-btn" disabled>Explore this theory</button>
-    <span class="cta-hint">We'll find evidence, examples, and hard questions</span>
+    <button class="cta" id="analyze-btn" disabled data-i18n="hero.cta">Explore this theory</button>
+    <span class="cta-hint" data-i18n="hero.ctaHint">We'll find evidence, examples, and hard questions</span>
   </div>
 
   <footer class="hero-footer">
     <a class="hero-footer__logo" href="https://evensfoundation.eu" target="_blank" rel="noopener noreferrer">Evens Foundation</a>
     <span class="hero-footer__sep">·</span>
-    <a class="hero-footer__link" href="https://evensfoundation.eu/news/launch-free-theory-of-change-app" target="_blank" rel="noopener noreferrer">About this project</a>
+    <a class="hero-footer__link" href="https://evensfoundation.eu/news/launch-free-theory-of-change-app" target="_blank" rel="noopener noreferrer" data-i18n="hero.about">About this project</a>
   </footer>
 </section>
 
 <div class="loading" id="loading">
   <div class="spinner"></div>
-  Searching history, movements, and research…
+  <span data-i18n="loading.text">Searching history, movements, and research…</span>
 </div>
 
 <div class="error-banner" id="error-banner" role="alert" hidden>
   <span id="error-banner-msg"></span>
-  <button type="button" id="error-banner-close" aria-label="Dismiss">✕</button>
+  <button type="button" id="error-banner-close" aria-label="Dismiss" data-i18n-attr="aria-label:banner.dismiss">✕</button>
 </div>
 
 <section id="results">
   <div class="results-actions">
-    <button class="reset-btn" id="reset-btn">← Try another theory</button>
+    <button class="reset-btn" id="reset-btn"><span class="reset-arrow" aria-hidden="true">←</span> <span data-i18n="results.reset">Try another theory</span></button>
     <div class="results-actions-right">
-      <button class="action-btn" id="print-btn" type="button">Save as PDF</button>
-      <button class="action-btn" id="share-btn" type="button">Share</button>
+      <button class="action-btn" id="print-btn" type="button" data-i18n="results.savePdf">Save as PDF</button>
+      <button class="action-btn" id="share-btn" type="button" data-i18n="results.share">Share</button>
     </div>
   </div>
 
@@ -1527,51 +1522,51 @@
 
   <!-- Mechanisms -->
   <div class="mechanisms" id="mechanisms-wrap">
-    <h3>How this could work — the causal chain</h3>
+    <h3 data-i18n="mechanisms.heading">How this could work — the causal chain</h3>
     <div class="mechanism-chain" id="mechanisms-list"></div>
   </div>
 
   <!-- Assumptions -->
   <div class="section">
-    <h3>Hidden assumptions this theory rests on <span class="assumptions-hint"><span class="hover-hint">Hover to discover</span><span class="tap-hint">Tap to discover</span></span></h3>
+    <h3><span data-i18n="assumptions.heading">Hidden assumptions this theory rests on</span> <span class="assumptions-hint"><span class="hover-hint" data-i18n="assumptions.hoverHint">Hover to discover</span><span class="tap-hint" data-i18n="assumptions.tapHint">Tap to discover</span></span></h3>
     <ul class="assumptions-list" id="assumptions-list"></ul>
   </div>
 
   <!-- Evidence -->
   <div class="evidence-grid">
     <div class="evidence-col for">
-      <h3>▲ Evidence for</h3>
+      <h3><span aria-hidden="true">▲</span> <span data-i18n="evidence.for">Evidence for</span></h3>
       <div id="evidence-for"></div>
     </div>
     <div class="evidence-col against">
-      <h3>▼ Evidence against</h3>
+      <h3><span aria-hidden="true">▼</span> <span data-i18n="evidence.against">Evidence against</span></h3>
       <div id="evidence-against"></div>
     </div>
   </div>
 
   <!-- History -->
   <div class="section" id="history-wrap">
-    <h3>Historical examples</h3>
+    <h3 data-i18n="history.heading">Historical examples</h3>
     <div class="timeline" id="history-list"></div>
   </div>
 
   <!-- Questions -->
   <div class="section">
-    <h3>Workbook — stress-test your theory</h3>
-    <p class="workbook-intro"><strong>Answer the questions below in your own words.</strong> Your responses save automatically in this browser, so you can come back later or share them with your team.</p>
+    <h3 data-i18n="workbook.heading">Workbook — stress-test your theory</h3>
+    <p class="workbook-intro" data-i18n-html="workbook.intro"><strong>Answer the questions below in your own words.</strong> Your responses save automatically in this browser, so you can come back later or share them with your team.</p>
     <ul class="questions-list" id="questions-list"></ul>
   </div>
 
   <!-- Related CTFG categories (lazy-loaded after page render) -->
   <div class="section related-section" id="related-categories" hidden>
-    <h2 class="related-heading">Explore related work in this area on the Civic Tech Field Guide</h2>
+    <h2 class="related-heading" data-i18n="related.heading">Explore related work in this area on the Civic Tech Field Guide</h2>
     <div class="related-grid" id="related-categories-grid"></div>
   </div>
 
   <!-- Feedback -->
   <div class="feedback" id="feedback">
-    <h3>How did it go?</h3>
-    <p class="feedback-lead">Tell us what worked, what surprised you, or what was off.</p>
+    <h3 data-i18n="feedback.heading">How did it go?</h3>
+    <p class="feedback-lead" data-i18n="feedback.lead">Tell us what worked, what surprised you, or what was off.</p>
     <form class="feedback-form" id="feedback-form" novalidate>
       <textarea
         class="feedback-field"
@@ -1580,32 +1575,34 @@
         rows="5"
         maxlength="4000"
         required
+        data-i18n-attr="placeholder:feedback.placeholder"
         placeholder="e.g., I tested 'mentoring young people → reduced political polarization'. The historical examples brought up cases I hadn't considered, but the evidence-against section felt thin. The probing questions were the most useful part — they reframed how I'd pitch this to a funder."
       ></textarea>
-      <label class="feedback-email-label" for="feedback-email">Your email (optional — only if you'd like a reply)</label>
+      <label class="feedback-email-label" for="feedback-email" data-i18n="feedback.emailLabel">Your email (optional — only if you'd like a reply)</label>
       <input
         class="feedback-field"
         id="feedback-email"
         name="email"
         type="email"
         autocomplete="email"
+        data-i18n-attr="placeholder:feedback.emailPlaceholder"
         placeholder="you@example.com"
       />
       <div class="feedback-actions">
-        <button type="submit" class="feedback-btn" id="feedback-submit">Send feedback</button>
+        <button type="submit" class="feedback-btn" id="feedback-submit" data-i18n="feedback.submit">Send feedback</button>
         <span class="feedback-status" id="feedback-status"></span>
       </div>
     </form>
-    <p class="feedback-thanks">Thanks — your feedback is on its way. We read every note.</p>
+    <p class="feedback-thanks" data-i18n="feedback.thanks">Thanks — your feedback is on its way. We read every note.</p>
   </div>
 
   <!-- Footer -->
   <footer class="results-footer">
-    <a href="https://github.com/mstem/theory-of-change" target="_blank" rel="noopener noreferrer">Get the code on Github</a>
+    <a href="https://github.com/mstem/theory-of-change" target="_blank" rel="noopener noreferrer" data-i18n="footer.code">Get the code on Github</a>
     <span class="footer-sep">·</span>
-    <a href="https://evensfoundation.eu/news/launch-free-theory-of-change-app" target="_blank" rel="noopener noreferrer">About this project</a>
+    <a href="https://evensfoundation.eu/news/launch-free-theory-of-change-app" target="_blank" rel="noopener noreferrer" data-i18n="footer.about">About this project</a>
     <span class="footer-sep">·</span>
-    <a href="https://github.com/mstem/theory-of-change/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>
+    <a href="https://github.com/mstem/theory-of-change/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" data-i18n="footer.license">MIT License</a>
   </footer>
 
   <!-- Evens Foundation footer (duplicated from evensfoundation.eu) -->
@@ -1628,8 +1625,8 @@
     </div>
     <div class="evens-footer__links">
       <ul class="evens-footer__policies">
-        <li><a href="https://evensfoundation.eu/privacy-policy" target="_blank" rel="noopener noreferrer">Privacy Policy</a></li>
-        <li><a href="https://evensfoundation.eu/cookie-policy" target="_blank" rel="noopener noreferrer">Cookie Policy</a></li>
+        <li><a href="https://evensfoundation.eu/privacy-policy" target="_blank" rel="noopener noreferrer" data-i18n="footer.privacy">Privacy Policy</a></li>
+        <li><a href="https://evensfoundation.eu/cookie-policy" target="_blank" rel="noopener noreferrer" data-i18n="footer.cookies">Cookie Policy</a></li>
       </ul>
       <ul class="evens-footer__socials">
         <li>
@@ -1663,7 +1660,7 @@
           </a>
         </li>
         <li class="evens-footer__newsletter">
-          <a href="http://eepurl.com/dJcs1L" target="_blank" rel="noopener noreferrer">Sign up to our newsletter</a>
+          <a href="http://eepurl.com/dJcs1L" target="_blank" rel="noopener noreferrer" data-i18n="footer.newsletter">Sign up to our newsletter</a>
         </li>
       </ul>
     </div>
@@ -1673,18 +1670,18 @@
 <!-- Share modal — must be before the script so the script can find these elements at parse time. -->
 <div class="share-modal-backdrop" id="share-backdrop" role="dialog" aria-modal="true" aria-labelledby="share-modal-title" hidden>
   <div class="share-modal">
-    <h3 id="share-modal-title">Share this theory</h3>
+    <h3 id="share-modal-title" data-i18n="share.heading">Share this theory</h3>
     <div class="share-warning">
-      <p><strong>Heads up</strong> — assume this link could be discovered online. Don't share it if your action or change contains anything you'd rather keep private.</p>
-      <p>Your workbook answers stay in this browser only — they're saved to local storage and are <strong>not</strong> included in the shared link. Only the original action and change travel with the URL.</p>
+      <p data-i18n-html="share.warning"><strong>Heads up</strong> — assume this link could be discovered online. Don't share it if your action or change contains anything you'd rather keep private.</p>
+      <p data-i18n-html="share.storageNote">Your workbook answers stay in this browser only — they're saved to local storage and are <strong>not</strong> included in the shared link. Only the original action and change travel with the URL.</p>
     </div>
     <div class="share-url-row">
-      <input class="share-url-input" id="share-url-input" type="text" readonly aria-label="Share URL">
-      <button class="share-copy-btn" id="share-copy-btn" type="button">Copy link</button>
+      <input class="share-url-input" id="share-url-input" type="text" readonly aria-label="Share URL" data-i18n-attr="aria-label:share.urlLabel">
+      <button class="share-copy-btn" id="share-copy-btn" type="button" data-i18n="share.copy">Copy link</button>
     </div>
     <div class="share-modal-actions">
-      <button class="share-native-btn" id="share-native-btn" type="button">Share…</button>
-      <button class="share-close-btn" id="share-close-btn" type="button">Close</button>
+      <button class="share-native-btn" id="share-native-btn" type="button" data-i18n="share.native">Share…</button>
+      <button class="share-close-btn" id="share-close-btn" type="button" data-i18n="share.close">Close</button>
     </div>
   </div>
 </div>

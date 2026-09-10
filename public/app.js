@@ -1,3 +1,119 @@
+// ─── Translations ─────────────────────────────────────────────────────────────
+// The server ships the bundle as a JSON data block, which the browser parses
+// but never executes, so it needs no CSP hash. This runs at the top of a
+// parser-blocking script at the end of <body>, which means it lands before the
+// first paint: no flash of English, and nothing moves under a visitor who has
+// already started typing.
+const I18N = (() => {
+  const fallback = { locale: { tag: 'en', dir: 'ltr', bundleKey: 'en' }, strings: {} };
+  try {
+    const dataBlock = document.getElementById('i18n');
+    if (!dataBlock) return fallback;
+    const parsed = JSON.parse(dataBlock.textContent);
+    return { locale: parsed.locale ?? fallback.locale, strings: parsed.strings ?? {} };
+  } catch {
+    // A page opened straight off disk has no data block. English is already in
+    // the markup, so there is nothing to repair.
+    return fallback;
+  }
+})();
+
+// split/join rather than replace: a translated string containing $& or $1 would
+// otherwise be mangled by replacement-pattern syntax.
+function t(key, vars) {
+  const value = I18N.strings[key];
+  if (typeof value !== 'string') return '';
+  if (!vars) return value;
+  return Object.entries(vars).reduce(
+    (text, [name, replacement]) => text.split(`{${name}}`).join(replacement),
+    value
+  );
+}
+
+// Only a bold span survives. Everything else is escaped, because these strings
+// are generated text going into the page.
+function limitedHtml(value) {
+  return escapeHtml(value)
+    .split('&lt;strong&gt;').join('<strong>')
+    .split('&lt;/strong&gt;').join('</strong>');
+}
+
+const ENGLISH_HEADLINE = 'How will {X}\ncreate {Y}\nin the world?';
+const HEADLINE_MAX_LINES = 4;
+
+function headlineUsable(template) {
+  return typeof template === 'string'
+    && (template.match(/\{X\}/g) || []).length === 1
+    && (template.match(/\{Y\}/g) || []).length === 1
+    && template.split('\n').length <= HEADLINE_MAX_LINES;
+}
+
+// The headline is a composition rather than a sentence: its line breaks are
+// forced by CSS and two of its parts are the contenteditable fields. Rebuilding
+// it from a template is what lets a verb-final language put the slots where
+// they belong.
+function renderHeadline() {
+  const headline = document.getElementById('headline');
+  const wrapX = document.getElementById('wrap-x');
+  const wrapY = document.getElementById('wrap-y');
+  if (!headline || !wrapX || !wrapY) return;
+
+  const word = (id, key) => {
+    const el = document.getElementById(id);
+    const value = t(key);
+    if (el && value) el.textContent = value;
+  };
+  word('word-x', 'headline.wordX');
+  word('word-y', 'headline.wordY');
+
+  let template = t('headline.template');
+  if (!headlineUsable(template)) {
+    // These two slots are the only input the app has, so a template that would
+    // drop one is refused rather than rendered.
+    if (template) console.warn('headline.template is unusable; keeping the English layout');
+    template = ENGLISH_HEADLINE;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const line of template.split('\n')) {
+    const lineEl = document.createElement('span');
+    lineEl.className = 'line';
+    for (const part of line.split(/(\{X\}|\{Y\})/)) {
+      // appendChild moves the existing node rather than copying it, so each
+      // field keeps its identity, its listeners, its blinking cursor and its
+      // suggestion list. Rebuilding them would silently unbind the autocomplete.
+      if (part === '{X}') lineEl.appendChild(wrapX);
+      else if (part === '{Y}') lineEl.appendChild(wrapY);
+      else if (part) lineEl.appendChild(document.createTextNode(part));
+    }
+    fragment.appendChild(lineEl);
+  }
+  // Both wraps are inside the fragment by now, so clearing the headline cannot
+  // destroy them.
+  headline.replaceChildren(fragment);
+}
+
+function applyTranslations() {
+  for (const el of document.querySelectorAll('[data-i18n]')) {
+    const value = t(el.dataset.i18n);
+    if (value) el.textContent = value;
+  }
+  for (const el of document.querySelectorAll('[data-i18n-html]')) {
+    const value = t(el.dataset.i18nHtml);
+    if (value) el.innerHTML = limitedHtml(value);
+  }
+  for (const el of document.querySelectorAll('[data-i18n-attr]')) {
+    for (const pair of el.dataset.i18nAttr.split(',')) {
+      const [attribute, key] = pair.split(':').map((part) => part.trim());
+      const value = t(key);
+      if (attribute && value) el.setAttribute(attribute, value);
+    }
+  }
+  renderHeadline();
+}
+
+applyTranslations();
+
 // ─── Suggestion data ──────────────────────────────────────────────────────────
 const X_SUGGESTIONS = [
   "organizing community action",
@@ -217,6 +333,15 @@ fieldY.addEventListener('input', checkReady);
 
 
 // ─── Strength colours ─────────────────────────────────────────────────────────
+// The label the model returns is an English enum that strengthColor and the
+// diagram's dash pattern both switch on, so it is translated for display only
+// and never in place.
+function strengthLabelText(label) {
+  if (!label) return '';
+  const translated = t(`strength.${label}`) || label;
+  return t('strength.linkLabel', { label: translated }) || `${translated} link`;
+}
+
 function strengthColor(label) {
   return { Strong: '#16A34A', Moderate: '#D97706', Weak: '#DC2626', Speculative: '#9CA3AF' }[label] || '#9CA3AF';
 }
@@ -308,12 +433,12 @@ function buildDiagram(action, change, strength, label, vertical = false) {
     return `<svg class="diagram-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">
   <!-- Action node -->
   <rect x="${cx - nw/2}" y="${topY}" width="${nw}" height="${actionH}" rx="12" class="node-x"/>
-  <text x="${cx}" y="${topY + 22}" text-anchor="middle" class="node-label" font-size="${m.labelSize}">ACTION</text>
+  <text x="${cx}" y="${topY + 22}" text-anchor="middle" class="node-label" font-size="${m.labelSize}">${escapeHtml(t('diagram.action') || 'ACTION')}</text>
   ${svgWrappedText(actionLines, cx, topY + m.padTop, 'node-text-x', m.fontSize, m.lineH)}
 
   <!-- Change node -->
   <rect x="${cx - nw/2}" y="${botY}" width="${nw}" height="${changeH}" rx="12" class="node-y"/>
-  <text x="${cx}" y="${botY + 22}" text-anchor="middle" class="node-label" font-size="${m.labelSize}">CHANGE</text>
+  <text x="${cx}" y="${botY + 22}" text-anchor="middle" class="node-label" font-size="${m.labelSize}">${escapeHtml(t('diagram.change') || 'CHANGE')}</text>
   ${svgWrappedText(changeLines, cx, botY + m.padTop, 'node-text-y', m.fontSize, m.lineH)}
 
   <!-- Connection: vertical arrow -->
@@ -355,12 +480,12 @@ function buildDiagram(action, change, strength, label, vertical = false) {
   return `<svg class="diagram-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">
   <!-- Action node -->
   <rect x="${lx}" y="${actionY}" width="${nw}" height="${actionH}" rx="12" class="node-x"/>
-  <text x="${lx + nw/2}" y="${actionY + 20}" text-anchor="middle" class="node-label" font-size="${m.labelSize}">ACTION</text>
+  <text x="${lx + nw/2}" y="${actionY + 20}" text-anchor="middle" class="node-label" font-size="${m.labelSize}">${escapeHtml(t('diagram.action') || 'ACTION')}</text>
   ${svgWrappedText(actionLines, lx + nw/2, actionY + m.padTop, 'node-text-x', m.fontSize, m.lineH)}
 
   <!-- Change node -->
   <rect x="${rx}" y="${changeY}" width="${nw}" height="${changeH}" rx="12" class="node-y"/>
-  <text x="${rx + nw/2}" y="${changeY + 20}" text-anchor="middle" class="node-label" font-size="${m.labelSize}">CHANGE</text>
+  <text x="${rx + nw/2}" y="${changeY + 20}" text-anchor="middle" class="node-label" font-size="${m.labelSize}">${escapeHtml(t('diagram.change') || 'CHANGE')}</text>
   ${svgWrappedText(changeLines, rx + nw/2, changeY + m.padTop, 'node-text-y', m.fontSize, m.lineH)}
 
   <!-- Connection: dashes stop flush against the arrowhead -->
@@ -408,7 +533,7 @@ function renderDiagramSection(data, action, change) {
     ${buildDiagram(action, change, data.strength, data.strength_label, vertical)}
     <div class="strength-badge">
       <span class="strength-dot" style="background:${color}"></span>
-      <span style="color:${color}">${escapeHtml(data.strength_label || '')} link</span>
+      <span style="color:${color}">${escapeHtml(strengthLabelText(data.strength_label))}</span>
     </div>
     <div class="diagram-summary">${summaryHtml}</div>
   `;
@@ -447,7 +572,7 @@ document.addEventListener('click', async (e) => {
   if (!source) return;
 
   btn.disabled = true;
-  btn.textContent = 'Getting you the precise link';
+  btn.textContent = t('source.lookingUp') || 'Getting you the precise link';
 
   try {
     const res = await fetch('/api/source-url', {
@@ -472,11 +597,11 @@ document.addEventListener('click', async (e) => {
       if (sepEl) sepEl.remove();
       btn.remove();
     } else {
-      btn.textContent = 'no source found';
+      btn.textContent = t('source.notFound') || 'no source found';
       btn.classList.add('source-lookup-empty');
     }
   } catch {
-    btn.textContent = 'lookup failed';
+    btn.textContent = t('source.lookupFailed') || 'lookup failed';
     btn.classList.add('source-lookup-empty');
   }
 });
@@ -510,7 +635,7 @@ function renderQuestionsSection(questions, action, change) {
         <span class="q-body">${escapeHtml(q)}</span>
       </div>
       <div class="q-answer-wrap">
-        <textarea id="q-answer-${i}" name="question_${i}" class="q-answer" placeholder="Write your thinking here…" rows="4">${escapeHtml(saved[i] || '')}</textarea>
+        <textarea id="q-answer-${i}" name="question_${i}" class="q-answer" placeholder="${escapeHtml(t('workbook.placeholder') || 'Write your thinking here…')}" rows="4">${escapeHtml(saved[i] || '')}</textarea>
       </div>
     </li>
   `).join('');
@@ -813,7 +938,7 @@ async function analyze() {
               document.getElementById('results').classList.add('visible');
               scrollToResults();
               resultsShown = true;
-              document.querySelector('.cta-hint').textContent = 'We found evidence, examples, and hard questions';
+              document.querySelector('.cta-hint').textContent = t('results.found') || 'We found evidence, examples, and hard questions';
             }
             scheduleRelatedCategories(data, action, change);
           }
@@ -826,7 +951,7 @@ async function analyze() {
           document.getElementById('results').classList.add('visible');
           scrollToResults();
           resultsShown = true;
-          document.querySelector('.cta-hint').textContent = 'We found evidence, examples, and hard questions';
+          document.querySelector('.cta-hint').textContent = t('results.found') || 'We found evidence, examples, and hard questions';
         }
       }
     }
@@ -912,20 +1037,20 @@ feedbackForm.addEventListener('submit', async (e) => {
   const email = feedbackEmail.value.trim();
 
   if (!message) {
-    feedbackStatus.textContent = 'Please add a short message before sending.';
+    feedbackStatus.textContent = t('feedback.empty') || 'Please add a short message before sending.';
     feedbackStatus.className = 'feedback-status err';
     feedbackMsg.focus();
     return;
   }
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    feedbackStatus.textContent = 'That email address does not look valid.';
+    feedbackStatus.textContent = t('feedback.badEmail') || 'That email address does not look valid.';
     feedbackStatus.className = 'feedback-status err';
     feedbackEmail.focus();
     return;
   }
 
   feedbackBtn.disabled = true;
-  feedbackStatus.textContent = 'Sending…';
+  feedbackStatus.textContent = t('feedback.sending') || 'Sending…';
   feedbackStatus.className = 'feedback-status';
 
   try {
@@ -940,7 +1065,7 @@ feedbackForm.addEventListener('submit', async (e) => {
     }
     feedbackWrap.classList.add('sent');
   } catch (err) {
-    feedbackStatus.textContent = 'Could not send: ' + err.message;
+    feedbackStatus.textContent = t('feedback.failed', { reason: err.message }) || `Could not send: ${err.message}`;
     feedbackStatus.className = 'feedback-status err';
     feedbackBtn.disabled = false;
   }
@@ -973,7 +1098,7 @@ function scheduleRelatedCategories(data, action, change) {
 
   // Reset per-submission state
   _relatedFetched = false;
-  grid.innerHTML = '<div class="related-skeleton">Looking for related work…</div>';
+  grid.innerHTML = `<div class="related-skeleton">${escapeHtml(t('related.loading') || 'Looking for related work…')}</div>`;
   section.hidden = false;
 
   // Build input text: action + change + summary + mechanisms only
@@ -1038,7 +1163,7 @@ async function fetchRelatedCategories(text) {
       <a class="related-card" href="${escapeHtml(c.softrUrl || '#')}" target="_blank" rel="noopener noreferrer">
         <div class="related-card-name">${escapeHtml(displayName)}</div>
         ${c.description ? `<div class="related-card-desc">${escapeHtml(c.description)}</div>` : ''}
-        <span class="related-card-explore">Explore →</span>
+        <span class="related-card-explore">${escapeHtml(t('related.explore') || 'Explore \u2192')}</span>
       </a>
     `;
     }).join('');
@@ -1115,7 +1240,7 @@ shareCopyBtn.addEventListener('click', async () => {
     document.execCommand('copy');
   }
   shareCopyBtn.classList.add('copied');
-  shareCopyBtn.textContent = 'Copied!';
+  shareCopyBtn.textContent = t('share.copied') || 'Copied!';
   setTimeout(() => {
     shareCopyBtn.classList.remove('copied');
     shareCopyBtn.textContent = 'Copy link';
@@ -1130,8 +1255,8 @@ if (typeof navigator.share === 'function') {
     const change = fieldValue(fieldY).trim();
     try {
       await navigator.share({
-        title: 'Theory of Change',
-        text: `Does "${action}" really lead to "${change}"?`,
+        title: t('hero.eyebrow') || 'Theory of Change',
+        text: t('share.nativeText', { action, change }) || `Does "${action}" really lead to "${change}"?`,
         url
       });
     } catch {
