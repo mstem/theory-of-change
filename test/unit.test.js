@@ -16,6 +16,8 @@ const {
   serializeJsonBlock,
   escapeHtml,
   parseSourceUrl,
+  textFromContent,
+  isConclusiveLookup,
   cacheGet,
   cacheSet,
   cache,
@@ -92,6 +94,100 @@ test('parseSourceUrl survives malformed JSON', () => {
 test('parseSourceUrl survives a non-string url field', () => {
   assert.equal(parseSourceUrl('{"url":123}'), '');
   assert.equal(parseSourceUrl('{"url":null}'), '');
+});
+
+test('parseSourceUrl finds the answer when prose around it also has braces', () => {
+  assert.equal(
+    parseSourceUrl('That site uses a {slug} pattern. {"url":"https://example.org/report/x/"}'),
+    'https://example.org/report/x/'
+  );
+});
+
+test('parseSourceUrl reads the last answer when the model restates itself', () => {
+  assert.equal(
+    parseSourceUrl('{"url":"https://example.org/wrong/"}\nCorrecting that: {"url":"https://example.org/right/"}'),
+    'https://example.org/right/'
+  );
+});
+
+test('parseSourceUrl still returns nothing when no object carries a url', () => {
+  assert.equal(parseSourceUrl('I looked at {a} and {b} and found nothing.'), '');
+});
+
+// ─── textFromContent ──────────────────────────────────────────────────────────
+// Once the lookup call carries the web search tool, the JSON no longer arrives in
+// content[0] — search and result blocks come first, so every text block counts.
+
+test('textFromContent reads a reply that is a single text block', () => {
+  assert.equal(textFromContent([{ type: 'text', text: '{"url":"https://example.org"}' }]),
+    '{"url":"https://example.org"}');
+});
+
+test('textFromContent finds the JSON behind the search blocks that precede it', () => {
+  const content = [
+    { type: 'text', text: 'Let me look that up.' },
+    { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: { query: 'bpc report' } },
+    { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: [{ type: 'web_search_result', url: 'https://bipartisanpolicy.org/report/x/' }] },
+    { type: 'text', text: '{"url":"https://bipartisanpolicy.org/report/x/"}' },
+  ];
+  assert.equal(parseSourceUrl(textFromContent(content)), 'https://bipartisanpolicy.org/report/x/');
+});
+
+test('textFromContent ignores a search result whose url is not the answer', () => {
+  const content = [
+    { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: [{ type: 'web_search_result', url: 'https://spam.example/' }] },
+    { type: 'text', text: '{"url":""}' },
+  ];
+  assert.equal(parseSourceUrl(textFromContent(content)), '');
+});
+
+test('textFromContent returns an empty string when the reply carries no text block', () => {
+  assert.equal(textFromContent([{ type: 'server_tool_use', id: 'x', name: 'web_search', input: {} }]), '');
+});
+
+// ─── isConclusiveLookup ───────────────────────────────────────────────────────
+// An empty URL is worth caching for a week only when the model actually decided
+// there was no link. A paused search turn or a truncated reply is a transient
+// failure wearing the same clothes.
+
+test('isConclusiveLookup accepts a reply that ended with an answer', () => {
+  assert.equal(isConclusiveLookup({
+    stop_reason: 'end_turn',
+    content: [{ type: 'text', text: '{"url":""}' }]
+  }), true);
+});
+
+test('isConclusiveLookup rejects a turn the API paused mid-search', () => {
+  assert.equal(isConclusiveLookup({
+    stop_reason: 'pause_turn',
+    content: [{ type: 'server_tool_use', id: 'x', name: 'web_search', input: {} }]
+  }), false);
+});
+
+test('isConclusiveLookup rejects a reply cut off by the token cap', () => {
+  assert.equal(isConclusiveLookup({
+    stop_reason: 'max_tokens',
+    content: [{ type: 'text', text: '{"url":"https://example.org/rep' }]
+  }), false);
+});
+
+test('isConclusiveLookup rejects a finished turn that produced no text at all', () => {
+  assert.equal(isConclusiveLookup({
+    stop_reason: 'end_turn',
+    content: [{ type: 'web_search_tool_result', tool_use_id: 'x', content: [] }]
+  }), false);
+});
+
+test('isConclusiveLookup rejects a malformed message rather than trusting it', () => {
+  assert.equal(isConclusiveLookup(undefined), false);
+  assert.equal(isConclusiveLookup({}), false);
+});
+
+test('textFromContent survives a missing or malformed content array', () => {
+  assert.equal(textFromContent(undefined), '');
+  assert.equal(textFromContent(null), '');
+  assert.equal(textFromContent('not an array'), '');
+  assert.equal(textFromContent([null, { type: 'text' }, { type: 'text', text: 5 }]), '');
 });
 
 test('parseSourceUrl survives null and undefined input', () => {
@@ -263,6 +359,11 @@ test('inlineScriptHashes hashes every script type that script-src actually cover
     <script type=text/javascript>f()</script>
   `;
   assert.equal(inlineScriptHashes(html).length, 7);
+});
+
+test('inlineScriptHashes hashes a script whose only type-like attribute is data-type', () => {
+  const hashes = inlineScriptHashes('<script data-type="application/json">alert(1)</script>');
+  assert.equal(hashes.length, 1);
 });
 
 test('inlineScriptHashes still skips a data block that also carries a src', () => {
