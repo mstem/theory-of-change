@@ -548,16 +548,36 @@ function renderMechanismsSection(mechanisms) {
   `).join('');
 }
 
+// A column can legitimately be empty: the model returns 0-3 items per side and is told
+// not to pad a thin one. Only ever called with a fully parsed array, so an empty array
+// here means the evidence really is one-sided, not that the stream is still arriving.
 function renderEvidenceColumn(elId, items) {
-  document.getElementById(elId).innerHTML = (items || []).map(e => {
+  const el = document.getElementById(elId);
+  const list = Array.isArray(items) ? items : [];
+
+  if (!list.length) {
+    // Two keys rather than one with a {side} slot: "for" and "against" do not
+    // survive as substitutable words in most languages.
+    const empty = elId === 'evidence-against'
+      ? t('evidence.noneAgainst') || 'No substantial evidence against this turned up.'
+      : t('evidence.noneFor') || 'No substantial evidence for this turned up.';
+    el.innerHTML = `<p class="evidence-empty">${escapeHtml(empty)}</p>`;
+    return;
+  }
+
+  el.innerHTML = list.map(e => {
     const source = e.source || '';
+    // The year carries its own separator rather than a second .source-sep, because the
+    // lookup handler removes the first .source-sep it finds when a link resolves.
+    const asOf = String(e.as_of || '').trim();
+    const year = /^\d{4}$/.test(asOf) ? `<span class="source-year"> · ${escapeHtml(asOf)}</span>` : '';
     const context = `${e.title || ''} — ${e.description || ''}`;
     return `
     <div class="evidence-item">
       <div class="evidence-title">${escapeHtml(e.title || '')}</div>
       <div class="evidence-desc">${escapeHtml(e.description || '')}</div>
       <div class="evidence-source">
-        <span class="source-name">${escapeHtml(source)}</span><span class="source-sep"> · </span><button type="button" class="source-lookup" data-source="${escapeHtml(source)}" data-context="${escapeHtml(context)}">source</button>
+        <span class="source-name">${escapeHtml(source)}</span>${year}<span class="source-sep"> · </span><button type="button" class="source-lookup" data-source="${escapeHtml(source)}" data-context="${escapeHtml(context)}">source</button>
       </div>
     </div>
   `;

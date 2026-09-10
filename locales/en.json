@@ -29,6 +29,8 @@
   "assumptions.tapHint": "Tap to discover",
   "evidence.for": "Evidence for",
   "evidence.against": "Evidence against",
+  "evidence.noneFor": "No substantial evidence for this turned up.",
+  "evidence.noneAgainst": "No substantial evidence against this turned up.",
   "history.heading": "Historical examples",
   "workbook.heading": "Workbook — stress-test your theory",
   "workbook.intro": "<strong>Answer the questions below in your own words.</strong> Your responses save automatically in this browser, so you can come back later or share them with your team.",

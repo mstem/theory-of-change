@@ -299,7 +299,18 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
 
   const prompt = `You are an expert in social change theory, history, and empirical research. Analyze this theory of change: "Doing '${action}' will create '${change}' in the world."
 
-Be specific — cite real movements, researchers, and cases. Be concise: 1-2 sentences per field, short titles. Each array must have exactly 3 items.
+Work from sources to claims, never the reverse. For the two evidence sections: first establish what research and documented cases actually found about this question, then state each finding, then place it in the column its content supports. Never pick a column, write a claim to fill it, and attach a citation afterwards.
+
+Weighing sources against each other:
+- For a claim about a quantity that moves (adoption, usage, polling, prices, error rates), the most recent credible measurement wins outright.
+- For a claim about a mechanism or an effect, a landmark replicated finding is not displaced by a single recent survey, preprint, or single-country study.
+- Where recent work genuinely contradicts established work, state both. They belong in opposite columns.
+- Weigh the source, not only the date: statistical agencies, peer-reviewed journals and established survey programmes outrank think-tank posts, which outrank vendor research.
+- Cite the primary study, not journalism about it.
+
+evidence_for and evidence_against take 0 to 3 items each. Include only findings that genuinely belong in that column. If the evidence is one-sided, leave the thin column short or empty — an empty column is an honest finding, and padding it with manufactured counterpoints is a failure. Always emit both keys, writing an empty column as [] rather than omitting the key. Every other array has exactly 3 items.
+
+Be specific — cite real movements, researchers, and cases. Be concise: 1-2 sentences per field, short titles.
 
 Score 70–100 as Strong if there is robust peer-reviewed evidence across multiple contexts; 40–69 as Moderate if evidence exists but is mixed or context-dependent; 10–39 as Weak if evidence is thin or contested; 0–9 as Speculative if there is little to no empirical basis.
 
@@ -310,8 +321,8 @@ Return ONLY valid JSON:
   "summary": "<2 sentences>",
   "assumptions": ["<assumption>", ...x3],
   "mechanisms": ["<mechanism>", ...x3],
-  "evidence_for": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>"}, ...x3],
-  "evidence_against": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>"}, ...x3],
+  "evidence_for": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>", "as_of": "<4-digit year the finding is from>"}, ...0 to 3],
+  "evidence_against": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>", "as_of": "<4-digit year the finding is from>"}, ...0 to 3],
   "historical_examples": [{"name": "<movement>", "period": "<dates>", "outcome": "<1 sentence>", "relevance": "<1 sentence>"}, ...x3],
   "probing_questions": ["<question>", ...x3]
 }`;
