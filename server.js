@@ -4,7 +4,7 @@ import rateLimit from 'express-rate-limit';
 import Anthropic from '@anthropic-ai/sdk';
 import { Resend } from 'resend';
 import { detectFromRequest, bundleKey } from 'localize';
-import { getBundle, referenceBundle, REFERENCE_KEY } from './lib/i18n.js';
+import { getBundle, referenceBundle, REFERENCE_KEY, listBundles } from './lib/i18n.js';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
@@ -38,7 +38,10 @@ const JS_MIME_TYPES = new Set([
 // An import map is covered by script-src even though it executes no code of its
 // own, so it counts as executable here.
 function isExecutableScript(attrs) {
-  const type = /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
+  // Anchored to a whitespace boundary rather than \b, which also matches after
+  // the hyphen in data-type — a script carrying data-type="application/json"
+  // would then be read as a data block and silently left out of script-src.
+  const type = /(?:^|\s)type\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
   if (!type) return true;
   const value = (type[1] ?? type[2] ?? type[3] ?? '').trim().toLowerCase();
   if (value === '' || value === 'module' || value === 'importmap') return true;
@@ -131,9 +134,14 @@ function renderIndex(key) {
     strings: bundle
   };
 
+  // Every replacement below is a function, never a string. Translated copy goes
+  // into these, and in a replacement string `$&`, `$\`` and `$'` are still
+  // expanded after escapeHtml has run — escapeHtml covers &<>"' and not $ — so a
+  // bundle containing `$'` would splice the rest of the document into an
+  // attribute. A replacer function is inserted verbatim.
   let html = indexHtml
-    .replace('<html lang="en">', `<html lang="${escapeHtml(language)}" dir="${dir}">`)
-    .replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(t('meta.title'))}</title>`);
+    .replace('<html lang="en">', () => `<html lang="${escapeHtml(language)}" dir="${dir}">`)
+    .replace(/<title>[\s\S]*?<\/title>/, () => `<title>${escapeHtml(t('meta.title'))}</title>`);
 
   const metas = [
     ['name', 'description', t('meta.description')],
@@ -144,16 +152,16 @@ function renderIndex(key) {
   ];
   for (const [attribute, name, value] of metas) {
     const pattern = new RegExp(`<meta ${attribute}="${name}" content="[^"]*">`);
-    html = html.replace(pattern, `<meta ${attribute}="${name}" content="${escapeHtml(value)}">`);
+    html = html.replace(pattern, () => `<meta ${attribute}="${name}" content="${escapeHtml(value)}">`);
   }
   html = html.replace('<meta property="og:type" content="website">',
-    `<meta property="og:type" content="website">\n<meta property="og:locale" content="${escapeHtml(language)}">`);
+    () => `<meta property="og:type" content="website">\n<meta property="og:locale" content="${escapeHtml(language)}">`);
 
   // A data block, not a script: the browser never executes it, so CSP's inline
   // check never reaches it and no hash is needed. serializeJsonBlock is what
   // stops a translated string containing </script> from closing the element.
   html = html.replace('<script src="/app.js"></script>',
-    `<script type="application/json" id="i18n">${serializeJsonBlock(payload)}</script>\n<script src="/app.js"></script>`);
+    () => `<script type="application/json" id="i18n">${serializeJsonBlock(payload)}</script>\n<script src="/app.js"></script>`);
 
   if (renderCache.size >= RENDER_CACHE_MAX) renderCache.delete(renderCache.keys().next().value);
   renderCache.set(key, html);
@@ -163,7 +171,10 @@ function renderIndex(key) {
 app.get(['/', '/index.html'], (req, res, next) => {
   if (!indexHtml) return next();
 
-  const detected = detectFromRequest(req);
+  // Without an available list, negotiation hands back the top well-formed entry
+  // whether or not a bundle exists for it, so a reader who also accepts a
+  // language we do have gets English instead.
+  const detected = detectFromRequest(req, { available: listBundles() });
   const key = bundleKey(detected.language.tag) ?? REFERENCE_KEY;
 
   // Both inputs to the choice are request headers, so a shared cache in front
@@ -409,14 +420,42 @@ const MAX_CONTEXT_LEN = 600;
 // Pulls the URL out of the model's reply. Returns '' for anything that is not a
 // well-formed http(s) URL, so a malformed reply degrades to "no link" not a crash.
 function parseSourceUrl(text) {
-  const jsonStr = String(text ?? '').match(/\{[\s\S]*\}/)?.[0] || '{}';
-  try {
-    const parsed = JSON.parse(jsonStr);
-    if (typeof parsed.url === 'string' && /^https?:\/\//i.test(parsed.url.trim())) {
-      return parsed.url.trim();
-    }
-  } catch { /* fall through with empty url */ }
+  // Each brace-delimited object is tried separately, latest first. A single
+  // greedy match would run from the first brace to the last, so any prose the
+  // model puts around the answer — likelier now that it narrates a search —
+  // would swallow the JSON and fail to parse.
+  const candidates = String(text ?? '').match(/\{[^{}]*\}/g) || [];
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    let parsed;
+    try {
+      parsed = JSON.parse(candidates[i]);
+    } catch { continue; }
+    const url = typeof parsed?.url === 'string' ? parsed.url.trim() : '';
+    if (/^https?:\/\//i.test(url)) return url;
+  }
   return '';
+}
+
+// The reply now arrives as a mix of block types — the search Claude ran, the
+// results it came back with, and its own prose — so the JSON can sit anywhere.
+// Only text blocks are joined: folding a result block into the string would give
+// parseSourceUrl's greedy brace match a span it cannot parse.
+function textFromContent(content) {
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('\n');
+}
+
+// An empty URL is a fine thing to remember for a week when the model looked and
+// found nothing. A paused search turn or a reply cut off at the token cap looks
+// identical from the outside and is not — caching those would keep the failure
+// long after a retry would have worked.
+function isConclusiveLookup(msg) {
+  if (!msg || typeof msg !== 'object') return false;
+  if (msg.stop_reason !== 'end_turn') return false;
+  return textFromContent(msg.content).trim() !== '';
 }
 
 const sourceUrlLimiter = rateLimit({
@@ -450,28 +489,41 @@ app.post('/api/source-url', sourceUrlLimiter, async (req, res) => {
   }
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const prompt = `Find the canonical homepage or primary web page for this cited source: "${source}"
-Context where they were cited: "${ctx}"
+  const prompt = `Search the web for the specific thing this citation points to: "${source}"
+Context where it was cited: "${ctx}"
+
+Find the page for that exact report, paper, study, dataset, or article — not the
+publisher's front door. A link to an organization's homepage is a failed lookup.
 
 Return ONLY valid JSON: {"url": "<https URL>"}
-- For a person: their faculty/personal page, or their Wikipedia page if more authoritative
-- For an organization or institution: their official website (NOT Wikipedia)
-- For a book, paper, or study: prefer the publisher/journal page, the author's page, or a stable DOI link
-- If you are not highly confident the URL is real and current, return "".`;
+- Return a URL only if it appeared in your search results. Never assemble one from a
+  pattern you expect a site to use.
+- For a report, paper, study, or article: the page for that document, or its DOI.
+- For a person: the page about the work cited, or failing that their faculty or personal page.
+- For an organization cited without a named document: the page covering the work described
+  in the context above, and only if you found one.
+- If the search did not turn up the document itself, return "".`;
 
   try {
     const msg = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 200,
+      // Search results and their citation blocks do not fit in a couple of hundred
+      // tokens; hitting the cap truncates the JSON and reads as "no link found".
+      max_tokens: 1024,
+      // 20250305 is the basic tool. The later variants run search from inside code
+      // execution, which this model cannot do.
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }],
       messages: [{ role: 'user', content: prompt }]
     });
-    const url = parseSourceUrl(msg.content?.[0]?.text || '');
+    const url = parseSourceUrl(textFromContent(msg.content));
 
-    if (sourceUrlCache.size >= SOURCE_URL_CACHE_MAX) {
-      const oldest = sourceUrlCache.keys().next().value;
-      if (oldest !== undefined) sourceUrlCache.delete(oldest);
+    if (isConclusiveLookup(msg)) {
+      if (sourceUrlCache.size >= SOURCE_URL_CACHE_MAX) {
+        const oldest = sourceUrlCache.keys().next().value;
+        if (oldest !== undefined) sourceUrlCache.delete(oldest);
+      }
+      sourceUrlCache.set(key, { url, t: Date.now() });
     }
-    sourceUrlCache.set(key, { url, t: Date.now() });
     return res.json({ url });
   } catch (err) {
     console.warn('source-url lookup failed:', err.message || err);
@@ -546,4 +598,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };

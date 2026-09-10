@@ -25,6 +25,22 @@ writeFileSync(
     'headline.template': 'STUB {X} STUB {Y} STUB'
   })
 );
+// A second stub, used for two things: negotiating against what is installed,
+// and proving that a $-sequence in translated copy survives the meta rewrite.
+const NEGOTIATED_LOCALE = 'de';
+const NEGOTIATED_TITLE = 'STUB TITLE DE';
+const DOLLAR_DESCRIPTION = "Preco $& total $` and $' too";
+writeFileSync(
+  join(TMP_CACHE_DIR, 'locales', `${NEGOTIATED_LOCALE}.json`),
+  JSON.stringify({
+    ...Object.fromEntries(Object.entries(reference).filter(([key]) => key !== '_meta')),
+    _meta: { language: NEGOTIATED_LOCALE, dir: 'ltr', charWidthFactor: 1 },
+    'meta.title': NEGOTIATED_TITLE,
+    'meta.description': DOLLAR_DESCRIPTION,
+    'headline.template': 'STUB {X} STUB {Y} STUB'
+  })
+);
+
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.RESEND_API_KEY;
 delete process.env.CURATOR_API_URL;
@@ -339,4 +355,23 @@ test('the favicon is served rather than 404ing', async () => {
     assert.equal(res.status, 200, `${path} should be served`);
     assert.equal(res.headers.get('cache-control'), 'public, max-age=2592000');
   }
+});
+
+// ─── Translated copy that looks like a replacement pattern ────────────────────
+
+test('a $-sequence in translated copy is rendered literally, not expanded', async () => {
+  const res = await fetch(BASE, { headers: { 'Accept-Language': NEGOTIATED_LOCALE } });
+  const html = await res.text();
+  const descriptions = html.match(/<meta name="description" content="[^"]*">/g) || [];
+  assert.equal(descriptions.length, 1);
+  assert.match(descriptions[0], /Preco \$&amp; total \$` and \$&#39; too/);
+});
+
+test('language negotiation only offers bundles that are actually installed', async () => {
+  // `is` has no bundle; `de` does. Without an available list the top entry wins
+  // and the reader gets English instead of the German they can read.
+  const res = await fetch(BASE, { headers: { 'Accept-Language': 'is, de;q=0.9' } });
+  const html = await res.text();
+  assert.match(html, /<html lang="de"/);
+  assert.match(html, new RegExp(NEGOTIATED_TITLE));
 });
