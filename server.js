@@ -3,6 +3,8 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import Anthropic from '@anthropic-ai/sdk';
 import { Resend } from 'resend';
+import { detectFromRequest, bundleKey } from 'localize';
+import { getBundle, referenceBundle, REFERENCE_KEY } from './lib/i18n.js';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
@@ -14,17 +16,53 @@ app.set('trust proxy', 1);
 app.use(morgan('combined', { skip: () => process.env.NODE_ENV === 'test' }));
 app.use(express.json({ limit: '4kb' }));
 
-// The page ships two inline <script> blocks (the analytics bootstrap and the app
-// itself), so script-src carries their sha256 hashes. Hashing index.html at boot
-// instead of pasting literal hashes means the policy cannot go stale when the
-// page changes. Inline style attributes are generated in the render path (bar
-// heights, strength colours), which no hash can cover, so style-src keeps
-// 'unsafe-inline'; script execution stays blocked either way.
+// The page ships one inline <script> (the analytics bootstrap), so script-src
+// carries its sha256 hash. Hashing index.html at boot instead of pasting literal
+// hashes means the policy cannot go stale when the page changes. Inline style
+// attributes are generated in the render path (bar heights, strength colours),
+// which no hash can cover, so style-src keeps 'unsafe-inline'; script execution
+// stays blocked either way.
+//
+// Only executable scripts are hashed. A <script type="application/json"> block is
+// data the browser never runs, so CSP's inline check never reaches it. Hashing
+// one would add a hash for content that is never executed, and would break the
+// moment that data is built per request rather than read from disk at boot.
+const JS_MIME_TYPES = new Set([
+  'application/ecmascript', 'application/javascript', 'application/x-ecmascript',
+  'application/x-javascript', 'text/ecmascript', 'text/javascript',
+  'text/javascript1.0', 'text/javascript1.1', 'text/javascript1.2',
+  'text/javascript1.3', 'text/javascript1.4', 'text/javascript1.5',
+  'text/jscript', 'text/livescript', 'text/x-ecmascript', 'text/x-javascript'
+]);
+
+// An import map is covered by script-src even though it executes no code of its
+// own, so it counts as executable here.
+function isExecutableScript(attrs) {
+  const type = /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
+  if (!type) return true;
+  const value = (type[1] ?? type[2] ?? type[3] ?? '').trim().toLowerCase();
+  if (value === '' || value === 'module' || value === 'importmap') return true;
+  return JS_MIME_TYPES.has(value.split(';')[0].trim());
+}
+
 function inlineScriptHashes(html) {
-  const inlineScript = /<script\b(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script>/gi;
-  return [...html.matchAll(inlineScript)].map(
-    ([, body]) => `'sha256-${createHash('sha256').update(body, 'utf8').digest('base64')}'`
-  );
+  const inlineScript = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+  return [...html.matchAll(inlineScript)]
+    .filter(([, attrs]) => !/\bsrc\s*=/i.test(attrs) && isExecutableScript(attrs))
+    .map(([, , body]) => `'sha256-${createHash('sha256').update(body, 'utf8').digest('base64')}'`);
+}
+
+// JSON.stringify leaves < > & untouched, so a value containing </script> would
+// close the block it is embedded in. These values include model output, so they
+// are escaped to \u form. U+2028 and U+2029 are legal raw inside JSON strings but
+// are line terminators to a JavaScript parser, so they go too.
+function serializeJsonBlock(value) {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
 }
 
 function buildCsp(html) {
@@ -42,9 +80,13 @@ function buildCsp(html) {
   ].join('; ');
 }
 
+const INDEX_PATH = join(__dirname, 'public', 'index.html');
+
+let indexHtml = '';
 let csp = '';
 try {
-  csp = buildCsp(readFileSync(join(__dirname, 'public', 'index.html'), 'utf8'));
+  indexHtml = readFileSync(INDEX_PATH, 'utf8');
+  csp = buildCsp(indexHtml);
 } catch (err) {
   console.warn('CSP build failed, serving without one:', err.message);
 }
@@ -61,6 +103,76 @@ app.use((req, res, next) => {
 });
 
 
+
+// The page is rendered per language rather than served off disk, so the lang
+// and dir attributes, the social metadata and the string bundle are all correct
+// in the first byte. Doing it client-side instead would show a flash of English
+// and would move a contenteditable field the visitor may already be typing in.
+//
+// Registered before express.static, and matched on exact paths rather than as a
+// catch-all, or unknown paths would stop 404ing.
+const RENDER_CACHE_MAX = 32;
+const renderCache = new Map();
+
+// Keyed by bundle key, not by the full tag: the page is in Portuguese, not
+// specifically pt-PT, and it bounds the cache to the number of languages
+// instead of the thousands of tags a browser might send.
+function renderIndex(key) {
+  if (renderCache.has(key)) return renderCache.get(key);
+
+  const reference = referenceBundle();
+  const bundle = key === REFERENCE_KEY ? reference : getBundle(key) ?? reference;
+  const language = bundle === reference ? REFERENCE_KEY : key;
+  const dir = bundle._meta?.dir === 'rtl' ? 'rtl' : 'ltr';
+  const t = (name) => bundle[name] ?? reference[name] ?? '';
+
+  const payload = {
+    locale: { tag: language, dir, bundleKey: key },
+    strings: bundle
+  };
+
+  let html = indexHtml
+    .replace('<html lang="en">', `<html lang="${escapeHtml(language)}" dir="${dir}">`)
+    .replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(t('meta.title'))}</title>`);
+
+  const metas = [
+    ['name', 'description', t('meta.description')],
+    ['property', 'og:title', t('meta.socialTitle')],
+    ['property', 'og:description', t('meta.description')],
+    ['name', 'twitter:title', t('meta.socialTitle')],
+    ['name', 'twitter:description', t('meta.description')]
+  ];
+  for (const [attribute, name, value] of metas) {
+    const pattern = new RegExp(`<meta ${attribute}="${name}" content="[^"]*">`);
+    html = html.replace(pattern, `<meta ${attribute}="${name}" content="${escapeHtml(value)}">`);
+  }
+  html = html.replace('<meta property="og:type" content="website">',
+    `<meta property="og:type" content="website">\n<meta property="og:locale" content="${escapeHtml(language)}">`);
+
+  // A data block, not a script: the browser never executes it, so CSP's inline
+  // check never reaches it and no hash is needed. serializeJsonBlock is what
+  // stops a translated string containing </script> from closing the element.
+  html = html.replace('<script src="/app.js"></script>',
+    `<script type="application/json" id="i18n">${serializeJsonBlock(payload)}</script>\n<script src="/app.js"></script>`);
+
+  if (renderCache.size >= RENDER_CACHE_MAX) renderCache.delete(renderCache.keys().next().value);
+  renderCache.set(key, html);
+  return html;
+}
+
+app.get(['/', '/index.html'], (req, res, next) => {
+  if (!indexHtml) return next();
+
+  const detected = detectFromRequest(req);
+  const key = bundleKey(detected.language.tag) ?? REFERENCE_KEY;
+
+  // Both inputs to the choice are request headers, so a shared cache in front
+  // of this would otherwise serve one visitor's language to the next.
+  res.setHeader('Vary', 'Accept-Language, Cookie');
+  res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(renderIndex(key));
+});
 
 app.use(express.static(join(__dirname, 'public'), {
   setHeaders(res, filePath) {
@@ -434,4 +546,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, buildCsp, inlineScriptHashes, escapeHtml, parseSourceUrl, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };

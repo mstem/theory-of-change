@@ -13,6 +13,7 @@
     "express": "^4.18.2",
     "express-basic-auth": "^1.2.1",
     "express-rate-limit": "^7.5.1",
+    "localize": "https://github.com/mstem/localize/releases/download/v1.0.0/localize-1.0.0.tgz",
     "morgan": "^1.11.0",
     "resend": "^6.12.3"
   }

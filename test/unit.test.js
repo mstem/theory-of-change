@@ -13,6 +13,7 @@ process.env.CACHE_DIR = TMP_CACHE_DIR;
 const {
   buildCsp,
   inlineScriptHashes,
+  serializeJsonBlock,
   escapeHtml,
   parseSourceUrl,
   cacheGet,
@@ -240,6 +241,60 @@ test('buildCsp puts every inline hash in script-src and blocks framing', () => {
   assert.match(csp, /default-src 'self'/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.match(csp, /object-src 'none'/);
+});
+
+test('inlineScriptHashes skips data blocks, which the browser never executes', () => {
+  const html = `
+    <script type="application/json" id="i18n">{"headline":"How will {X}"}</script>
+    <script type="application/ld+json">{"@type":"WebSite"}</script>
+    <script type="speculationrules">{"prerender":[]}</script>
+  `;
+  assert.deepEqual(inlineScriptHashes(html), []);
+});
+
+test('inlineScriptHashes hashes every script type that script-src actually covers', () => {
+  const html = `
+    <script>a()</script>
+    <script type="">b()</script>
+    <script type="module">c()</script>
+    <script type="importmap">{"imports":{}}</script>
+    <script type="TEXT/JavaScript">d()</script>
+    <script type="text/javascript; charset=utf-8">e()</script>
+    <script type=text/javascript>f()</script>
+  `;
+  assert.equal(inlineScriptHashes(html).length, 7);
+});
+
+test('inlineScriptHashes still skips a data block that also carries a src', () => {
+  assert.deepEqual(inlineScriptHashes('<script type="application/json" src="/a.json"></script>'), []);
+});
+
+test('a data block does not change the policy it is embedded under', () => {
+  const withData = buildCsp('<script>a()</script><script type="application/json">{}</script>');
+  const without = buildCsp('<script>a()</script>');
+  assert.equal(withData, without);
+});
+
+test('serializeJsonBlock neutralises a payload that would close the script block', () => {
+  const hostile = { summary: '</script><img src=x onerror=alert(1)>' };
+  const out = serializeJsonBlock(hostile);
+  assert.equal(out.includes('</script>'), false);
+  assert.equal(out.includes('<'), false);
+  assert.equal(out.includes('>'), false);
+  assert.equal(JSON.parse(out).summary, hostile.summary);
+});
+
+test('serializeJsonBlock escapes the separators that are legal in JSON but not in JS', () => {
+  const raw = `a\u2028b\u2029c`;
+  const out = serializeJsonBlock({ s: raw });
+  assert.equal(out.includes('\u2028'), false);
+  assert.equal(out.includes('\u2029'), false);
+  assert.equal(JSON.parse(out).s, raw);
+});
+
+test('serializeJsonBlock round-trips a full bundle unchanged', () => {
+  const bundle = { headline: 'How will {X}\ncreate {Y}\nin the world?', n: 3, ok: true, missing: null };
+  assert.deepEqual(JSON.parse(serializeJsonBlock(bundle)), bundle);
 });
 
 test('the shipped index.html has no inline event handlers, which no hash could cover', () => {
