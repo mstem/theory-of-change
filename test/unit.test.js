@@ -403,3 +403,146 @@ test('the shipped index.html has no inline event handlers, which no hash could c
   const handlerInMarkup = /<[a-z][^>]*\son[a-z]+\s*=\s*["']/i;
   assert.equal(handlerInMarkup.test(html), false);
 });
+
+// ─── Evidence columns ─────────────────────────────────────────────────────────
+// renderEvidenceColumn lives in public/app.js, which is a plain browser script with
+// top-level DOM access, so it cannot be imported. Slice the two functions it needs out
+// of the shipped file and run them against a stub document — this exercises the real
+// shipped code rather than a copy that can drift.
+
+// Slices a top-level function out of the shipped script. Braces inside strings,
+// comments and regex literals do not count toward nesting: escapeHtml's /[&<>"']/g
+// holds both quote characters, and renderEvidenceColumn's /^\d{4}$/ holds a brace pair.
+function sliceFunction(src, name) {
+  const start = src.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `public/app.js no longer defines ${name}`);
+
+  // A slash opens a regex rather than dividing when the last meaningful character
+  // cannot end an expression.
+  const REGEX_MAY_FOLLOW = new Set([...'(,=:[!&|?{};+-*%~^<>', undefined]);
+  let depth = 0;
+  let previous;
+
+  for (let i = src.indexOf('{', start); i < src.length; i++) {
+    const c = src[i];
+    const next = src[i + 1];
+
+    if (c === '/' && next === '/') { i = src.indexOf('\n', i); if (i < 0) break; continue; }
+    if (c === '/' && next === '*') { i = src.indexOf('*/', i) + 1; continue; }
+
+    if (c === "'" || c === '"' || c === '`') {
+      for (i++; i < src.length; i++) {
+        if (src[i] === '\\') i++;
+        else if (src[i] === c) break;
+      }
+      previous = c;
+      continue;
+    }
+
+    if (c === '/' && REGEX_MAY_FOLLOW.has(previous)) {
+      let inClass = false;
+      for (i++; i < src.length; i++) {
+        if (src[i] === '\\') i++;
+        else if (src[i] === '[') inClass = true;
+        else if (src[i] === ']') inClass = false;
+        else if (src[i] === '/' && !inClass) break;
+      }
+      previous = '/';
+      continue;
+    }
+
+    if (c === '{') depth++;
+    else if (c === '}' && --depth === 0) return src.slice(start, i + 1);
+
+    if (!/\s/.test(c)) previous = c;
+  }
+  throw new Error(`unbalanced braces in ${name}`);
+}
+
+function renderColumn(elId, items, strings = {}) {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const el = { innerHTML: '' };
+  const doc = { getElementById: (id) => (id === elId ? el : null) };
+  // An empty strings map stands in for a page whose bundle never loaded, which is
+  // the case the English fallbacks exist for.
+  const t = (key) => strings[key] ?? '';
+  const body = [sliceFunction(appSrc, 'escapeHtml'), sliceFunction(appSrc, 'renderEvidenceColumn')].join('\n');
+  new Function('document', 't', 'elId', 'items', `${body}\nrenderEvidenceColumn(elId, items);`)(
+    doc, t, elId, items);
+  return el.innerHTML;
+}
+
+const ITEM = { title: 'Demos poll', description: 'One in five UK adults used AI.', source: 'Demos', as_of: '2026' };
+
+test('an empty evidence column reads as a finding, not a failed load', () => {
+  const html = renderColumn('evidence-against', []);
+  assert.match(html, /evidence-empty/);
+  assert.match(html, /against/);
+  assert.equal(/evidence-item/.test(html), false);
+});
+
+test('each evidence column names its own side when empty', () => {
+  assert.match(renderColumn('evidence-for', []), /evidence\s+for this/);
+  assert.match(renderColumn('evidence-against', []), /evidence\s+against this/);
+});
+
+test('a missing evidence array is treated as empty rather than throwing', () => {
+  assert.match(renderColumn('evidence-for', undefined), /evidence-empty/);
+});
+
+test('an evidence item shows the year its finding is from', () => {
+  const html = renderColumn('evidence-for', [ITEM]);
+  assert.match(html, /source-year[^>]*> · 2026</);
+});
+
+// The lookup handler does querySelector('.source-sep') and removes the first match, so a
+// second element carrying that class would make it delete the wrong separator.
+test('an evidence item carries exactly one source-sep for the lookup handler to remove', () => {
+  const html = renderColumn('evidence-for', [ITEM]);
+  assert.equal(html.match(/class="source-sep"/g).length, 1);
+});
+
+test('an as_of that is not a four-digit year is dropped rather than printed', () => {
+  for (const asOf of ['mid-2020s', '', 'n/a', '26']) {
+    const html = renderColumn('evidence-for', [{ ...ITEM, as_of: asOf }]);
+    assert.equal(/source-year/.test(html), false, `rendered a year for ${JSON.stringify(asOf)}`);
+  }
+});
+
+test('the analyze prompt asks for evidence-led counts, not three items a side', () => {
+  const src = readFileSync(join(import.meta.dirname, '..', 'server.js'), 'utf8');
+  assert.equal(/Each array must have exactly 3 items/.test(src), false);
+  assert.match(src, /evidence_for and evidence_against take 0 to 3 items each/);
+  assert.match(src, /Work from sources to claims, never the reverse/);
+});
+
+test('a translated empty-column message replaces the English fallback', () => {
+  const html = renderColumn('evidence-against', [], { 'evidence.noneAgainst': 'Geen substantieel bewijs.' });
+  assert.match(html, /Geen substantieel bewijs\./);
+  assert.equal(/No substantial evidence/.test(html), false);
+});
+
+// Drift between these two fallbacks and locales/en.json is covered for every key in
+// the script by i18n-keys.test.js, so it is not repeated here.
+
+// The progressive renderer walks SECTIONS_IN_ORDER and breaks on the first key whose
+// value has not fully arrived. An empty column must read as a complete value, or every
+// section after it would stop streaming and wait for the final parse.
+test('an empty evidence array reads as a complete value, so streaming does not stall on it', () => {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const extract = new Function(
+    `${sliceFunction(appSrc, 'extractCompleteJsonValue')}\nreturn extractCompleteJsonValue;`)();
+
+  const buf = '{"summary": "x", "evidence_for": [], "evidence_against": [{"title": "t"}]';
+  assert.equal(extract(buf, 'evidence_for'), '[]');
+  assert.ok(extract(buf, 'evidence_for'), 'an empty array must be truthy or the render loop breaks');
+  assert.deepEqual(JSON.parse(extract(buf, 'evidence_for')), []);
+  assert.equal(extract(buf, 'evidence_against'), '[{"title": "t"}]');
+});
+
+// A column the model omits entirely, rather than sending as [], breaks the progressive
+// loop and defers every later section to the final parse. The prompt forbids it.
+test('the prompt requires both evidence keys even when a column is empty', () => {
+  const src = readFileSync(join(import.meta.dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /Always emit both keys, writing an empty column as \[\] rather than omitting the key/);
+});
