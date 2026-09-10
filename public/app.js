@@ -222,8 +222,22 @@ function strengthColor(label) {
 }
 
 // ─── SVG text word-wrap ───────────────────────────────────────────────────────
+// Wrapping is character-count based, not measured, so the diagram can be built
+// as a plain string with no layout pass. charsPerLine is tuned per layout to
+// the node width and font size below. A word longer than the whole line budget
+// is hard-split, so a pasted URL or a German compound can't poke out sideways.
 function svgLines(text, charsPerLine) {
-  const words = text.split(' ');
+  const words = [];
+  for (const w of String(text).split(/\s+/)) {
+    if (!w) continue;
+    let rest = w;
+    while (rest.length > charsPerLine) {
+      words.push(rest.slice(0, charsPerLine));
+      rest = rest.slice(charsPerLine);
+    }
+    if (rest) words.push(rest);
+  }
+
   const lines = [];
   let line = '';
   for (const w of words) {
@@ -238,17 +252,28 @@ function svgLines(text, charsPerLine) {
   return lines;
 }
 
-function svgWrappedText(text, x, cy, cls, charsPerLine = 16) {
-  const lines = svgLines(text, charsPerLine);
-  const lineH = 16;
-  const totalH = lines.length * lineH;
-  const startY = cy - totalH / 2 + lineH * 0.8;
+// Lays out pre-wrapped lines downwards from the top of the text block, so the
+// caller can size the node box around them instead of guessing.
+function svgWrappedText(lines, x, topY, cls, fontSize, lineH) {
   return lines.map((l, i) =>
-    `<text x="${x}" y="${startY + i * lineH}" text-anchor="middle" class="${cls}">${escapeHtml(l)}</text>`
+    `<text x="${x}" y="${topY + lineH * 0.78 + i * lineH}" text-anchor="middle" class="${cls}" font-size="${fontSize}">${escapeHtml(l)}</text>`
   ).join('\n');
 }
 
 // ─── SVG Diagram ──────────────────────────────────────────────────────────────
+// Node geometry per layout. Font sizes live here rather than in CSS so that the
+// code deciding line height is the same code that decides glyph height — a
+// media query overriding one but not the other silently breaks the fit.
+const NODE = {
+  horizontal: { nw: 180, charsPerLine: 16, fontSize: 13, lineH: 18, labelSize: 10, padTop: 32, padBottom: 14, minH: 100 },
+  vertical:   { nw: 220, charsPerLine: 20, fontSize: 16, lineH: 21, labelSize: 11, padTop: 36, padBottom: 16, minH: 110 },
+};
+
+// Height a node needs to hold its label plus every wrapped line.
+function nodeHeight(lineCount, m) {
+  return Math.max(m.minH, m.padTop + lineCount * m.lineH + m.padBottom);
+}
+
 function buildDiagram(action, change, strength, label, vertical = false) {
   const color = strengthColor(label);
   const strokeW = Math.max(2.5, Math.round((strength / 100) * 14));
@@ -258,12 +283,21 @@ function buildDiagram(action, change, strength, label, vertical = false) {
              : label === 'Weak'     ? '8 6'
              :                        '4 8';          // Speculative
 
+  const m = vertical ? NODE.vertical : NODE.horizontal;
+  const actionLines = svgLines(action, m.charsPerLine);
+  const changeLines = svgLines(change, m.charsPerLine);
+  const actionH = nodeHeight(actionLines.length, m);
+  const changeH = nodeHeight(changeLines.length, m);
+
   if (vertical) {
-    const nw = 220, nh = 110;
-    const W = 260, H = 510;
+    const nw = m.nw;
+    const W = 260;
+    const gap = 250;                       // arrow run between the two nodes
+    const topY = 20;
+    const botY = topY + actionH + gap;
+    const H = botY + changeH + 20;
     const cx = W / 2;
-    const topY = 20, botY = H - nh - 20;
-    const arrowStartY = topY + nh + 8;
+    const arrowStartY = topY + actionH + 8;
     const arrowEndY = botY - 8;
     const vStrokeW = strokeW * 1.5;
     const headH = Math.max(12, vStrokeW * 1.4);
@@ -273,14 +307,14 @@ function buildDiagram(action, change, strength, label, vertical = false) {
 
     return `<svg class="diagram-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">
   <!-- Action node -->
-  <rect x="${cx - nw/2}" y="${topY}" width="${nw}" height="${nh}" rx="12" class="node-x"/>
-  <text x="${cx}" y="${topY + 22}" text-anchor="middle" class="node-label">ACTION</text>
-  ${svgWrappedText(action, cx, topY + 56, 'node-text-x', 20)}
+  <rect x="${cx - nw/2}" y="${topY}" width="${nw}" height="${actionH}" rx="12" class="node-x"/>
+  <text x="${cx}" y="${topY + 22}" text-anchor="middle" class="node-label" font-size="${m.labelSize}">ACTION</text>
+  ${svgWrappedText(actionLines, cx, topY + m.padTop, 'node-text-x', m.fontSize, m.lineH)}
 
   <!-- Change node -->
-  <rect x="${cx - nw/2}" y="${botY}" width="${nw}" height="${nh}" rx="12" class="node-y"/>
-  <text x="${cx}" y="${botY + 22}" text-anchor="middle" class="node-label">CHANGE</text>
-  ${svgWrappedText(change, cx, botY + 56, 'node-text-y', 20)}
+  <rect x="${cx - nw/2}" y="${botY}" width="${nw}" height="${changeH}" rx="12" class="node-y"/>
+  <text x="${cx}" y="${botY + 22}" text-anchor="middle" class="node-label" font-size="${m.labelSize}">CHANGE</text>
+  ${svgWrappedText(changeLines, cx, botY + m.padTop, 'node-text-y', m.fontSize, m.lineH)}
 
   <!-- Connection: vertical arrow -->
   <line
@@ -298,11 +332,14 @@ function buildDiagram(action, change, strength, label, vertical = false) {
 </svg>`;
   }
 
-  const nw = 180;
+  const nw = m.nw;
   const pad = 60;
-  const W = 640, H = 160;
+  const W = 640;
+  const H = Math.max(160, Math.max(actionH, changeH) + 60);
   const lx = pad, rx = W - nw - pad;
   const cy = H / 2;
+  const actionY = cy - actionH / 2;
+  const changeY = cy - changeH / 2;
   const startX = lx + nw + 8;
   const endX = rx - 8;
 
@@ -317,14 +354,14 @@ function buildDiagram(action, change, strength, label, vertical = false) {
 
   return `<svg class="diagram-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">
   <!-- Action node -->
-  <rect x="${lx}" y="${cy - 50}" width="${nw}" height="100" rx="12" class="node-x"/>
-  <text x="${lx + nw/2}" y="${cy - 30}" text-anchor="middle" class="node-label">ACTION</text>
-  ${svgWrappedText(action, lx + nw/2, cy + 8, 'node-text-x')}
+  <rect x="${lx}" y="${actionY}" width="${nw}" height="${actionH}" rx="12" class="node-x"/>
+  <text x="${lx + nw/2}" y="${actionY + 20}" text-anchor="middle" class="node-label" font-size="${m.labelSize}">ACTION</text>
+  ${svgWrappedText(actionLines, lx + nw/2, actionY + m.padTop, 'node-text-x', m.fontSize, m.lineH)}
 
   <!-- Change node -->
-  <rect x="${rx}" y="${cy - 50}" width="${nw}" height="100" rx="12" class="node-y"/>
-  <text x="${rx + nw/2}" y="${cy - 30}" text-anchor="middle" class="node-label">CHANGE</text>
-  ${svgWrappedText(change, rx + nw/2, cy + 8, 'node-text-y')}
+  <rect x="${rx}" y="${changeY}" width="${nw}" height="${changeH}" rx="12" class="node-y"/>
+  <text x="${rx + nw/2}" y="${changeY + 20}" text-anchor="middle" class="node-label" font-size="${m.labelSize}">CHANGE</text>
+  ${svgWrappedText(changeLines, rx + nw/2, changeY + m.padTop, 'node-text-y', m.fontSize, m.lineH)}
 
   <!-- Connection: dashes stop flush against the arrowhead -->
   <line
@@ -410,7 +447,7 @@ document.addEventListener('click', async (e) => {
   if (!source) return;
 
   btn.disabled = true;
-  btn.textContent = 'looking up…';
+  btn.textContent = 'Getting you the precise link';
 
   try {
     const res = await fetch('/api/source-url', {
