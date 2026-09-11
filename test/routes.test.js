@@ -398,3 +398,42 @@ test('language negotiation only offers bundles that are actually installed', asy
   assert.match(html, /<html lang="de"/);
   assert.match(html, new RegExp(NEGOTIATED_TITLE));
 });
+
+// ─── Lookups once the day's money is gone ─────────────────────────────────────
+// These have to stay at the end of the file. The analyze budget tests above
+// spend the whole day on the process-wide meter, and these read that state
+// rather than setting up their own: there is no way to inject a clock into a
+// route, so the only reachable budget condition here is the one those tests
+// leave behind. The slice arithmetic itself is unit tested with real timestamps.
+
+// A configured key is part of the condition under test: a server with no key at
+// all reports that first, because a missing key is a fault to fix rather than a
+// limit that lifts tomorrow. The budget guard returns before any client is
+// constructed, so this placeholder never reaches the network.
+async function postWithKey(path, body) {
+  process.env.ANTHROPIC_API_KEY = 'test-key-never-used';
+  try {
+    return await post(path, body);
+  } finally {
+    delete process.env.ANTHROPIC_API_KEY;
+  }
+}
+
+test('a lookup is refused once the day is spent, and says so plainly', async () => {
+  recordSpend(DAILY_BUDGET_USD);
+  const res = await postWithKey('/api/source-url', { source: 'Elinor Ostrom', context: 'commons' });
+  assert.equal(res.status, 503);
+  const body = await res.json();
+  assert.match(body.error, /resume tomorrow/);
+});
+
+test('a refused lookup carries no url field for the page to misread as a miss', async () => {
+  recordSpend(DAILY_BUDGET_USD);
+  const res = await postWithKey('/api/source-url', { source: 'Erica Chenoweth', context: 'resistance' });
+  const body = await res.json();
+  // The status is asserted here too, or the absence of a url proves nothing: a
+  // lookup that failed upstream also returns a body with no url, so without this
+  // the test passes just as happily with the budget guard removed.
+  assert.equal(res.status, 503);
+  assert.equal('url' in body, false);
+});

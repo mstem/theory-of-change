@@ -31,6 +31,7 @@ const {
   lookupTtl,
   searchResultCount,
   lookupCost,
+  spentOnLookupsToday,
   cacheGet,
   cacheSet,
   cache,
@@ -989,4 +990,35 @@ test('a reservation made yesterday does not subtract from today', () => {
   const reservation = reserveSpend(yesterday);
   settleSpend(reservation, 0.42, today);
   assert.equal(Number(spentToday(today).toFixed(4)), 0.42);
+});
+
+// ─── Reserving against the lookup slice ───────────────────────────────────────
+// A lookup takes about four seconds, so without a reservation a burst all passes
+// the same budget check before any of them has recorded what it spent. The slice
+// exists to stop lookups starving analyses, and a burst is exactly when that
+// matters, so the estimate goes on the meter first and the difference settles
+// after. Each test uses its own day, far from any other test's, because the
+// meter is module state keyed by UTC day.
+
+const DAY_ONE = Date.UTC(2031, 0, 5, 12);
+const DAY_TWO = Date.UTC(2031, 0, 6, 12);
+const DAY_THREE = Date.UTC(2031, 0, 7, 12);
+
+test('a lookup reservation charges the lookup slice, not just the day', () => {
+  reserveSpend(DAY_ONE, 'lookup', 0.09);
+  assert.equal(Number(spentOnLookupsToday(DAY_ONE).toFixed(4)), 0.09);
+  assert.equal(Number(spentToday(DAY_ONE).toFixed(4)), 0.09);
+});
+
+test('settling a lookup gives back what the reservation overcharged', () => {
+  const reservation = reserveSpend(DAY_TWO, 'lookup', 0.09);
+  settleSpend(reservation, 0.022, DAY_TWO);
+  assert.equal(Number(spentOnLookupsToday(DAY_TWO).toFixed(4)), 0.022);
+  assert.equal(Number(spentToday(DAY_TWO).toFixed(4)), 0.022);
+});
+
+test('lookups stop at their slice while the day as a whole still has room', () => {
+  reserveSpend(DAY_THREE, 'lookup', DAILY_LOOKUP_BUDGET_USD);
+  assert.equal(budgetExhausted(DAY_THREE, 'lookup'), true);
+  assert.equal(budgetExhausted(DAY_THREE, 'analysis'), false);
 });

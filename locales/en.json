@@ -74,6 +74,7 @@
   "source.lookingUp": "Getting you the precise link",
   "source.notFound": "no source found",
   "source.lookupFailed": "lookup failed",
+  "source.lookupPaused": "link lookups resume tomorrow",
   "error.connection": "The connection was interrupted. Please check your network and try again.",
   "error.generic": "Something went wrong. Please try again.",
   "error.server": "Server error {status}",
