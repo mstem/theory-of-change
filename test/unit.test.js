@@ -19,6 +19,7 @@ const {
   textFromContent,
   isConclusiveLookup,
   lookupTtl,
+  searchResultCount,
   cacheGet,
   cacheSet,
   cache,
@@ -154,7 +155,10 @@ test('textFromContent returns an empty string when the reply carries no text blo
 test('isConclusiveLookup accepts a reply that ended with an answer', () => {
   assert.equal(isConclusiveLookup({
     stop_reason: 'end_turn',
-    content: [{ type: 'text', text: '{"url":""}' }]
+    content: [
+      { type: 'web_search_tool_result', tool_use_id: 'a', content: [{ type: 'web_search_result', url: 'https://example.org/' }] },
+      { type: 'text', text: '{"url":""}' }
+    ]
   }), true);
 });
 
@@ -204,14 +208,56 @@ test('isConclusiveLookup rejects a reply whose search was rate limited', () => {
   }), false);
 });
 
-test('isConclusiveLookup accepts a search that ran and simply matched nothing', () => {
+// This one asserted the opposite until a run on the sibling endpoint showed the
+// model announcing that search had stopped working and then answering from
+// memory, with every result block an empty list and no error anywhere. A search
+// that genuinely matched nothing and a search that silently did nothing are the
+// same bytes, so neither is cached. Empties expire in an hour, so the cost of
+// re-asking is one lookup; the cost of believing a broken search is a citation
+// that stays dead.
+test('isConclusiveLookup declines to cache a run where no search returned anything', () => {
   assert.equal(isConclusiveLookup({
     stop_reason: 'end_turn',
     content: [
       { type: 'web_search_tool_result', tool_use_id: 'a', content: [] },
       { type: 'text', text: '{"url":""}' }
     ]
-  }), true);
+  }), false);
+});
+
+// ─── searchResultCount ────────────────────────────────────────────────────────
+// A search can come back as an empty list rather than an error, which reads as
+// success to anything checking only for an error block. When every search
+// returns nothing, whatever URL the model then writes came out of training data,
+// which is the bug this endpoint exists to fix.
+
+test('searchResultCount adds up the hits across every search', () => {
+  assert.equal(searchResultCount([
+    { type: 'web_search_tool_result', tool_use_id: 'a', content: [{ type: 'web_search_result' }, { type: 'web_search_result' }] },
+    { type: 'web_search_tool_result', tool_use_id: 'b', content: [{ type: 'web_search_result' }] },
+    { type: 'text', text: '{"url":"https://example.org/"}' }
+  ]), 3);
+});
+
+test('searchResultCount counts a silent empty search as no evidence', () => {
+  assert.equal(searchResultCount([
+    { type: 'web_search_tool_result', tool_use_id: 'a', content: [] },
+    { type: 'web_search_tool_result', tool_use_id: 'b', content: [] }
+  ]), 0);
+});
+
+test('searchResultCount counts a reply that never searched as no evidence', () => {
+  assert.equal(searchResultCount([{ type: 'text', text: '{"url":"https://example.org/"}' }]), 0);
+});
+
+test('isConclusiveLookup rejects an answer no search result supports', () => {
+  assert.equal(isConclusiveLookup({
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'web_search_tool_result', tool_use_id: 'a', content: [] },
+      { type: 'text', text: '{"url":"https://bipartisanpolicy.org/"}' }
+    ]
+  }), false);
 });
 
 // ─── lookupTtl ────────────────────────────────────────────────────────────────

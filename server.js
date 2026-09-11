@@ -428,6 +428,12 @@ const SOURCE_URL_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // is a fact about one search on one afternoon, and the same citation resolved on
 // the next attempt in testing, so it is held only long enough to stop a visitor
 // clicking the same dead affordance over and over.
+// These three belong together and should not be changed one at a time: the
+// four-search ceiling below, the refusal to answer without results, and this
+// short negative TTL. Zero results means "this lookup ran out of searches" at
+// least as often as it means "no such page", so dropping the URL is only safe
+// while a retry is cheap and soon. Lower the ceiling or lengthen this, and
+// citations a second attempt would have found go dead instead.
 const SOURCE_URL_EMPTY_TTL_MS = 60 * 60 * 1000;
 
 function lookupTtl(url) {
@@ -482,6 +488,18 @@ function searchErrors(content) {
     .map((b) => b.content?.error_code || 'unknown');
 }
 
+// Hits across every search that ran. A search can return an empty list instead of
+// an error, which reads as success to anything looking only for an error block,
+// and a measured run on the analyze endpoint had the model say out loud that
+// search had stopped working and then answer from memory anyway. With no results
+// behind it, a URL is a guess, which is the failure this endpoint exists to fix.
+function searchResultCount(content) {
+  if (!Array.isArray(content)) return 0;
+  return content
+    .filter((b) => b?.type === 'web_search_tool_result' && Array.isArray(b.content))
+    .reduce((total, b) => total + b.content.length, 0);
+}
+
 function isConclusiveLookup(msg) {
   if (!msg || typeof msg !== 'object') return false;
   if (msg.stop_reason !== 'end_turn') return false;
@@ -489,6 +507,8 @@ function isConclusiveLookup(msg) {
   // {"url":""}. Only the error block distinguishes them, and without this check
   // a rate limit gets remembered as though it were an answer.
   if (searchErrors(msg.content).length > 0) return false;
+  // Nothing came back from any search, so nothing the model wrote is grounded.
+  if (searchResultCount(msg.content) === 0) return false;
   return textFromContent(msg.content).trim() !== '';
 }
 
@@ -554,7 +574,12 @@ Return ONLY valid JSON: {"url": "<https URL>"}
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }],
       messages: [{ role: 'user', content: prompt }]
     });
-    const url = parseSourceUrl(textFromContent(msg.content));
+    // A URL the search results never produced came from the model's memory, and a
+    // remembered URL is how this endpoint used to return publisher homepages and
+    // invented paths. Drop it rather than pass a guess off as a found link.
+    const grounded = searchResultCount(msg.content) > 0;
+    const url = grounded ? parseSourceUrl(textFromContent(msg.content)) : '';
+    if (!grounded) console.warn('source-url: no search results behind the reply, answering empty');
 
     if (isConclusiveLookup(msg)) {
       if (sourceUrlCache.size >= SOURCE_URL_CACHE_MAX) {
@@ -637,4 +662,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, lookupTtl, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupTtl, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
