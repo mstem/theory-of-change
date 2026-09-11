@@ -242,6 +242,24 @@ function spentOnLookupsToday(now = Date.now()) {
   return spend.day === utcDay(now) ? spend.lookupUsd : 0;
 }
 
+// An analysis runs for minutes and only reports what it cost at the end. Charging
+// the day then leaves a window in which every request that starts reads a budget
+// that the analyses already running have committed and not yet reported. So the
+// day is charged an estimate up front and corrected once the real figure arrives.
+const ANALYSIS_ESTIMATE_USD = 0.3;
+
+function reserveSpend(now = Date.now()) {
+  recordSpend(ANALYSIS_ESTIMATE_USD, now);
+  return { usd: ANALYSIS_ESTIMATE_USD, day: utcDay(now) };
+}
+
+// A run that never reports back keeps its estimate. It had already paid for its
+// searches and its tokens by then, so forgetting it would understate the day.
+function settleSpend(reservation, actualUsd, now = Date.now()) {
+  if (!reservation || reservation.day !== utcDay(now)) return recordSpend(actualUsd, now);
+  return recordSpend(actualUsd - reservation.usd, now);
+}
+
 function budgetExhausted(now = Date.now(), purpose = 'analysis') {
   if (spentToday(now) >= DAILY_BUDGET_USD) return true;
   return purpose === 'lookup' && spentOnLookupsToday(now) >= DAILY_LOOKUP_BUDGET_USD;
@@ -277,7 +295,13 @@ function loadSpendFromDisk() {
   try {
     const d = JSON.parse(readFileSync(SPEND_FILE, 'utf8'));
     if (d && typeof d.day === 'string' && typeof d.usd === 'number') {
-      spend = { day: d.day, usd: d.usd, lookupUsd: typeof d.lookupUsd === 'number' ? d.lookupUsd : 0 };
+      // A hand-edited or corrupted figure below zero would disable the ceiling for
+      // the rest of the day, which is the one thing this file must not be able to do.
+      spend = {
+        day: d.day,
+        usd: Math.max(0, d.usd),
+        lookupUsd: Math.max(0, typeof d.lookupUsd === 'number' ? d.lookupUsd : 0)
+      };
     }
     if (spentToday() > 0) console.log(`Spent so far today: $${spentToday().toFixed(2)} of $${DAILY_BUDGET_USD}`);
   } catch (err) {
@@ -385,6 +409,8 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
     return res.end();
   }
 
+  const reservation = reserveSpend();
+
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   const prompt = `You are an expert in social change theory, history, and empirical research. Analyze this theory of change: "Doing '${action}' will create '${change}' in the world."
@@ -424,7 +450,10 @@ Then return ONLY valid JSON, with nothing after it:
   try {
     const stream = client.messages.stream({
       model: process.env.CLAUDE_MODEL || 'claude-opus-4-8',
-      max_tokens: 4096,
+      // A measured grounded run emitted 3,699 output tokens, and the search notation
+      // comes out of the same budget. Hitting the cap truncates the JSON, which the
+      // page then repairs into a half analysis without saying so.
+      max_tokens: 8192,
       // The current search variant runs code execution under the hood, which is why
       // code_execution must not also be declared here — two execution environments
       // confuse the model. Step 3 of docs/PRD-evidence-freshness.md tunes the cap.
@@ -466,7 +495,7 @@ Then return ONLY valid JSON, with nothing after it:
         `billed_searches=${u.server_tool_use?.web_search_requests ?? '?'}`,
         `results=${results}`,
         `cost=$${analysisCost(u).toFixed(4)}`,
-        `spent_today=$${recordSpend(analysisCost(u)).toFixed(2)}/${DAILY_BUDGET_USD}`
+        `spent_today=$${settleSpend(reservation, analysisCost(u)).toFixed(2)}/${DAILY_BUDGET_USD}`
       ].join(', '));
       if (isCompleteAnalysis(msg)) cacheSet(cacheKey, full);
       else console.warn(`analyze not cached: turn ended on ${msg?.stop_reason}`);
@@ -760,4 +789,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, reserveSpend, settleSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };

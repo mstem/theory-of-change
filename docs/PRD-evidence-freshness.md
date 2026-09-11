@@ -1,6 +1,6 @@
 # PRD: Grounded evidence
 
-- Status: sections 1 and 2 signed off 10 September 2026; steps 1, 2 and 4 built
+- Status: sections 1 and 2 signed off 10 September 2026; steps 1, 2 and 4 built and reviewed
 - Author: drafted 10 September 2026, revised same day
 - Owner: Matt Stempeck
 
@@ -103,7 +103,7 @@ Once claims come from sources, the judgment moves to which sources to trust and 
 
 **Latency is the real price of this change.** Search adds 4–5 seconds per lookup, measured during the source-URL work. Putting it on the main call means time to first token goes from under a second to somewhere around 5–15 seconds depending on how many searches the model runs. The current UI streams almost immediately and that is what users feel. This needs a genuine loading state — the "looking up…" treatment already built for source URLs is the closest existing pattern.
 
-**Rate limiting.** **Decided 11 September 2026.** Two guards, since one uncached analysis costs about $0.58 rather than the $0.06 estimated here. `/api/analyze` is capped at 5 requests per 15 minutes per IP, down from 20, which is about $2.90 per IP per window and still more theories than one sitting produces. On top of that a global ceiling of $25 of new analyses per UTC day (`DAILY_BUDGET_USD`), counted from `msg.usage` at list prices and held on disk beside the analyze cache so a redeploy does not hand the next visitor a fresh budget. Past the ceiling, anything already in the 24-hour cache still answers and a new theory gets told to come back tomorrow. Inside the day's ceiling, citation lookups get a slice of their own (`DAILY_LOOKUP_BUDGET_USD`, default $5) rather than the run of it: they cost cents, fire several times on one page and need no account, so on a shared ceiling an afternoon of clicking could spend the day the analyses needed. An analysis always has at least $20 available.
+**Rate limiting.** **Decided 11 September 2026.** Two guards, since one uncached analysis costs about $0.58 rather than the $0.06 estimated here. `/api/analyze` is capped at 5 requests per 15 minutes per IP, down from 20, which is about $2.90 per IP per window and still more theories than one sitting produces. On top of that a global ceiling of $25 of new analyses per UTC day (`DAILY_BUDGET_USD`), counted from `msg.usage` at list prices and held on disk beside the analyze cache so a redeploy does not hand the next visitor a fresh budget. Past the ceiling, anything already in the 24-hour cache still answers and a new theory gets told to come back tomorrow. Inside the day's ceiling, citation lookups are to get a slice of their own (`DAILY_LOOKUP_BUDGET_USD`, default $5) rather than the run of it: they cost cents, fire several times on one page and need no account, so on a shared ceiling an afternoon of clicking could spend the day the analyses needed. The meter takes the slice (`recordSpend(usd, now, 'lookup')`, `budgetExhausted(now, 'lookup')`) but **nothing charges it yet**: `/api/source-url` is on a separate branch and still spends unmetered. Until that lands, lookups are bounded only by 60 requests per 15 minutes per IP and their cost is missing from the day's total, so the figure the analyze guard reads is lower than the day actually cost.
 
 **Edge cases**
 

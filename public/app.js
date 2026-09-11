@@ -716,6 +716,8 @@ const SECTIONS_IN_ORDER = [
 let _renderedSections = new Set();
 let _partialData = {};
 
+let _shownQueries = -1;
+
 function resetProgressiveState() {
   _renderedSections = new Set();
   _partialData = {};
@@ -723,8 +725,6 @@ function resetProgressiveState() {
   const queries = document.getElementById('loading-queries');
   if (queries) queries.innerHTML = '';
 }
-
-let _shownQueries = -1;
 
 function renderSearchProgress(buffer) {
   const el = document.getElementById('loading-queries');
@@ -856,7 +856,10 @@ function tryProgressiveRender(buffer, action, change) {
 // only that notation: when a search fails the model drops back into prose about
 // rate limits, and that is it talking to itself, not to the reader.
 function extractSearchQueries(buf) {
-  const jsonAt = buf.indexOf('{');
+  // The analysis opens with a quoted key. A brace in the narration does not, and
+  // cutting the preamble there would stop the searches rendering for the rest of
+  // the wait, which is most of it.
+  const jsonAt = buf.search(/\{\s*"/);
   const preamble = jsonAt < 0 ? buf : buf.slice(0, jsonAt);
   const lines = preamble.split('\n');
   // Without the JSON to close it, the last line may still be arriving.
@@ -865,6 +868,16 @@ function extractSearchQueries(buf) {
     .map((line) => line.match(/^q:\s*(.+?)\s*$/))
     .filter(Boolean)
     .map((m) => m[1]);
+}
+
+// Strictness is the wrong test for which object is the analysis. A raw newline
+// inside a string value fails a strict parse, and repairing exactly that is what
+// parseJSON is for, so a strict test walks past the analysis and settles on the
+// first evidence item instead. Anything the narration leaves behind is beyond
+// repair, which is what keeps this from matching a stray brace.
+function isRecoverableJson(span) {
+  try { JSON.parse(span); return true; } catch (_) {}
+  try { parseJSON(span); return true; } catch (_) { return false; }
 }
 
 // A grounded response is no longer JSON and nothing else: the model narrates before
@@ -885,7 +898,7 @@ function extractJsonObject(buf) {
         closed = true;
         const span = buf.slice(start, i + 1);
         if (firstComplete === null) firstComplete = span;
-        try { JSON.parse(span); return span; } catch (_) {}
+        if (isRecoverableJson(span)) return span;
         break;
       }
     }
@@ -1008,7 +1021,13 @@ async function analyze() {
         if (line.startsWith('data: ')) {
           const payload = JSON.parse(line.slice(6));
           if (payload.chunk) buffer += payload.chunk;
-          if (payload.error) throw new Error(payload.error);
+          if (payload.error) {
+            // Written by the server for this reader, so it survives the catch below
+            // rather than being replaced by a suggestion to try again.
+            const err = new Error(payload.error);
+            err.fromServer = true;
+            throw err;
+          }
           if (payload.done) {
             const jsonStr = extractJsonObject(buffer);
             if (!jsonStr) throw new Error('No JSON in response');
@@ -1041,9 +1060,10 @@ async function analyze() {
   } catch (err) {
     console.error('analyze error:', err);
     document.getElementById('loading').classList.remove('visible');
-    const msg = /input stream|network|fetch|failed to fetch/i.test(err.message)
-      ? 'The connection was interrupted. Please check your network and try again.'
-      : 'Something went wrong. Please try again.';
+    const msg = err.fromServer ? err.message
+      : /input stream|network|fetch|failed to fetch/i.test(err.message)
+        ? 'The connection was interrupted. Please check your network and try again.'
+        : 'Something went wrong. Please try again.';
     showErrorBanner(msg);
     btn.disabled = false;
     document.getElementById('hero').classList.remove('shrunk');

@@ -23,6 +23,8 @@ const {
   recordSpend,
   spentToday,
   budgetExhausted,
+  reserveSpend,
+  settleSpend,
   DAILY_BUDGET_USD,
   DAILY_LOOKUP_BUDGET_USD,
   isConclusiveLookup,
@@ -636,7 +638,8 @@ test('text written before the JSON does not hide a finished section', () => {
 test('a brace in the search narration does not become the start of the analysis', () => {
   const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
   const extract = new Function(
-    `${sliceFunction(appSrc, 'extractJsonObject')}\nreturn extractJsonObject;`)();
+    [sliceFunction(appSrc, 'parseJSON'), sliceFunction(appSrc, 'isRecoverableJson'),
+     sliceFunction(appSrc, 'extractJsonObject'), 'return extractJsonObject;'].join('\n'))();
 
   const buf = 'I will return {the analysis} once I have searched.\n{"strength": 62, "summary": "x"}';
   assert.equal(extract(buf), '{"strength": 62, "summary": "x"}');
@@ -645,7 +648,8 @@ test('a brace in the search narration does not become the start of the analysis'
 test('a response cut off before its closing brace still yields something to repair', () => {
   const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
   const extract = new Function(
-    `${sliceFunction(appSrc, 'extractJsonObject')}\nreturn extractJsonObject;`)();
+    [sliceFunction(appSrc, 'parseJSON'), sliceFunction(appSrc, 'isRecoverableJson'),
+     sliceFunction(appSrc, 'extractJsonObject'), 'return extractJsonObject;'].join('\n'))();
 
   const buf = '{"strength": 62, "evidence_for": [{"title": "t"}], "summary": "cut off here';
   assert.match(extract(buf), /^\{"strength": 62/);
@@ -804,4 +808,66 @@ test('a q: inside the analysis itself is not mistaken for a search', () => {
 test('an answer that came back with no searches at all shows nothing', () => {
   assert.deepEqual(searchQueries('{"strength": 60'), []);
   assert.deepEqual(searchQueries(''), []);
+});
+
+// The analysis is the outermost object in the buffer. A raw newline inside a string
+// value makes it fail a strict parse, which is the whole reason parseJSON exists, so
+// strictness is the wrong test for which object to take: the first one that passes it
+// is an evidence item, and rendering that wipes every section already on screen.
+test('a repairable analysis is preferred over a child of it that parses cleanly', () => {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const extract = new Function(
+    [sliceFunction(appSrc, 'parseJSON'), sliceFunction(appSrc, 'isRecoverableJson'),
+     sliceFunction(appSrc, 'extractJsonObject'), 'return extractJsonObject;'].join('\n'))();
+
+  const buf = 'q:mutual aid trust\n{"strength": 62, "summary": "Line one\nLine two", "evidence_for": [{"title": "T"}]}';
+  assert.match(extract(buf), /^\{"strength": 62/);
+});
+
+test('a brace in the narration is still skipped, repairable or not', () => {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const extract = new Function(
+    [sliceFunction(appSrc, 'parseJSON'), sliceFunction(appSrc, 'isRecoverableJson'),
+     sliceFunction(appSrc, 'extractJsonObject'), 'return extractJsonObject;'].join('\n'))();
+
+  assert.equal(extract('I will return {the analysis} once I have searched.\n{"strength": 62}'), '{"strength": 62}');
+});
+
+// Same assumption, other function: the first brace in the buffer is not necessarily
+// the analysis, and cutting there stops the searches rendering for the rest of the wait.
+test('a brace in the narration does not stop the searches from showing', () => {
+  assert.deepEqual(searchQueries('q:a\nI will return {the analysis} next.\nq:b\n'), ['a', 'b']);
+});
+
+// ─── Reserving before spending ────────────────────────────────────────────────
+// An analysis takes minutes, and what it cost is only known at the end. Charging
+// the day only then leaves a window where every request that starts sees a budget
+// that six other running analyses have already committed.
+
+test('a reservation is charged the moment the analysis starts', () => {
+  const day = Date.UTC(2026, 9, 1, 9);
+  reserveSpend(day);
+  assert.ok(spentToday(day) > 0, 'nothing was charged until the analysis finished');
+});
+
+test('settling replaces the estimate with what the analysis actually cost', () => {
+  const day = Date.UTC(2026, 9, 2, 9);
+  const reservation = reserveSpend(day);
+  settleSpend(reservation, 0.42, day);
+  assert.equal(Number(spentToday(day).toFixed(4)), 0.42);
+});
+
+test('an analysis that never finished stays charged at the estimate', () => {
+  const day = Date.UTC(2026, 9, 3, 9);
+  const before = spentToday(day);
+  reserveSpend(day);
+  assert.ok(spentToday(day) > before, 'a failed run cost searches and tokens and must still count');
+});
+
+test('a reservation made yesterday does not subtract from today', () => {
+  const yesterday = Date.UTC(2026, 9, 4, 23);
+  const today = Date.UTC(2026, 9, 5, 1);
+  const reservation = reserveSpend(yesterday);
+  settleSpend(reservation, 0.42, today);
+  assert.equal(Number(spentToday(today).toFixed(4)), 0.42);
 });
