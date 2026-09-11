@@ -17,6 +17,16 @@ const {
   escapeHtml,
   parseSourceUrl,
   textFromContent,
+  webSearchUsage,
+  isCompleteAnalysis,
+  analysisCost,
+  recordSpend,
+  spentToday,
+  budgetExhausted,
+  reserveSpend,
+  settleSpend,
+  DAILY_BUDGET_USD,
+  DAILY_LOOKUP_BUDGET_USD,
   isConclusiveLookup,
   lookupTtl,
   searchResultCount,
@@ -664,4 +674,319 @@ test('an empty evidence array reads as a complete value, so streaming does not s
 test('the prompt requires both evidence keys even when a column is empty', () => {
   const src = readFileSync(join(import.meta.dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /Always emit both keys, writing an empty column as \[\] rather than omitting the key/);
+});
+
+// ─── Grounding the analysis in search ─────────────────────────────────────────
+// A server tool that fails does not throw. The request comes back 200 and the
+// result block holds an error object where the list of results would be, so an
+// analysis can quietly fall back to the model's own knowledge with no signal.
+
+test('a failed web search is reported rather than read as a result', () => {
+  const msg = {
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'server_tool_use', name: 'web_search', input: { query: 'chatbot adoption 2026' } },
+      { type: 'web_search_tool_result', content: { type: 'web_search_tool_result_error', error_code: 'max_uses_exceeded' } },
+      { type: 'text', text: '{}' }
+    ]
+  };
+  assert.deepEqual(webSearchUsage(msg), { searches: 1, errors: ['max_uses_exceeded'], results: 0 });
+});
+
+test('a web search that returned results counts as grounding, not as an error', () => {
+  const msg = {
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'server_tool_use', name: 'web_search', input: { query: 'chatbot adoption 2026' } },
+      { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://example.org/report' }] },
+      { type: 'text', text: '{}' }
+    ]
+  };
+  assert.deepEqual(webSearchUsage(msg), { searches: 1, errors: [], results: 1 });
+});
+
+test('an analysis the model answered without searching reports no searches', () => {
+  assert.deepEqual(webSearchUsage({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{}' }] }),
+    { searches: 0, errors: [], results: 0 });
+});
+
+test('a response with no content block array is not mistaken for a grounded one', () => {
+  assert.deepEqual(webSearchUsage(undefined), { searches: 0, errors: [], results: 0 });
+  assert.deepEqual(webSearchUsage({ content: 'not blocks' }), { searches: 0, errors: [], results: 0 });
+});
+
+// The 24-hour cache is what makes the search cost bearable, and it is also what
+// makes a bad analysis stick. A turn that paused at the server-side tool-loop
+// limit, or hit the token cap, carries truncated JSON — cache it and every visitor
+// for the next day gets the broken half.
+
+test('a turn that paused mid-search is not a complete analysis', () => {
+  assert.equal(isCompleteAnalysis({ stop_reason: 'pause_turn', content: [{ type: 'text', text: '{"strength"' }] }), false);
+});
+
+test('a turn cut off at the token cap is not a complete analysis', () => {
+  assert.equal(isCompleteAnalysis({ stop_reason: 'max_tokens', content: [{ type: 'text', text: '{"strength"' }] }), false);
+});
+
+test('a turn the model finished on its own is a complete analysis', () => {
+  assert.equal(isCompleteAnalysis({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{}' }] }), true);
+});
+
+test('a response that never arrived is not a complete analysis', () => {
+  assert.equal(isCompleteAnalysis(undefined), false);
+  assert.equal(isCompleteAnalysis({}), false);
+});
+
+// Search puts the model in a mood to explain itself. Anything it says before the
+// opening brace lands in the same buffer the progressive renderer reads, and the
+// renderer must still find the sections underneath it.
+test('text written before the JSON does not hide a finished section', () => {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const extract = new Function(
+    `${sliceFunction(appSrc, 'extractCompleteJsonValue')}\nreturn extractCompleteJsonValue;`)();
+
+  const buf = 'I looked up recent adoption figures first.\n{"strength": 62, "summary": "x", "evidence_for": []';
+  assert.equal(extract(buf, 'strength'), '62');
+  assert.equal(extract(buf, 'summary'), '"x"');
+  assert.equal(extract(buf, 'evidence_for'), '[]');
+});
+
+// The model narrates before it searches, so the final parse can no longer assume the
+// buffer is JSON and nothing else. Taking everything from the first brace to the last
+// one works only for as long as the narration happens to contain no braces.
+test('a brace in the search narration does not become the start of the analysis', () => {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const extract = new Function(
+    [sliceFunction(appSrc, 'parseJSON'), sliceFunction(appSrc, 'isRecoverableJson'),
+     sliceFunction(appSrc, 'extractJsonObject'), 'return extractJsonObject;'].join('\n'))();
+
+  const buf = 'I will return {the analysis} once I have searched.\n{"strength": 62, "summary": "x"}';
+  assert.equal(extract(buf), '{"strength": 62, "summary": "x"}');
+});
+
+test('a response cut off before its closing brace still yields something to repair', () => {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const extract = new Function(
+    [sliceFunction(appSrc, 'parseJSON'), sliceFunction(appSrc, 'isRecoverableJson'),
+     sliceFunction(appSrc, 'extractJsonObject'), 'return extractJsonObject;'].join('\n'))();
+
+  const buf = '{"strength": 62, "evidence_for": [{"title": "t"}], "summary": "cut off here';
+  assert.match(extract(buf), /^\{"strength": 62/);
+});
+
+// The model writes something before the JSON whatever the prompt says, and every
+// character of it is billed output the reader never sees. The instruction can only
+// make that preamble cheap, so it is worth pinning that the instruction is there.
+test('the prompt holds the preamble to a machine notation rather than prose', () => {
+  const src = readFileSync(join(import.meta.dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /Before the JSON, write nothing a person would read/);
+  assert.match(src, /one line per search in the form q:<keywords>/);
+});
+
+// ─── What a grounded analysis costs ───────────────────────────────────────────
+// Published Opus 4.8 rates: $5 per million input tokens, $25 per million output,
+// a tenth of input for a cache read, and $10 per thousand searches.
+
+test('the cost of an analysis is its tokens plus its searches', () => {
+  const usd = analysisCost({
+    input_tokens: 100_000,
+    output_tokens: 2_000,
+    server_tool_use: { web_search_requests: 3 }
+  });
+  assert.equal(Number(usd.toFixed(4)), 0.5800); // 0.50 + 0.05 + 0.03
+});
+
+test('a cache read costs a tenth of what reading it fresh would', () => {
+  const usd = analysisCost({ input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 1_000_000 });
+  assert.equal(Number(usd.toFixed(4)), 0.5);
+});
+
+test('a usage object the API did not send costs nothing rather than NaN', () => {
+  assert.equal(analysisCost(undefined), 0);
+  assert.equal(analysisCost({}), 0);
+});
+
+// ─── The daily ceiling ────────────────────────────────────────────────────────
+
+test('spend accumulates across the analyses run in one day', () => {
+  const noon = Date.UTC(2026, 8, 11, 12);
+  recordSpend(0.4, noon);
+  recordSpend(0.6, noon);
+  assert.equal(Number(spentToday(noon).toFixed(4)), 1);
+});
+
+test('spend starts again when the day rolls over', () => {
+  const day1 = Date.UTC(2026, 8, 12, 23);
+  const day2 = Date.UTC(2026, 8, 13, 1);
+  recordSpend(5, day1);
+  assert.equal(spentToday(day1), 5);
+  assert.equal(spentToday(day2), 0);
+});
+
+test('the ceiling is reached at the budget, not past it', () => {
+  const day = Date.UTC(2026, 8, 14, 9);
+  assert.equal(budgetExhausted(day), false);
+  recordSpend(DAILY_BUDGET_USD - 0.01, day);
+  assert.equal(budgetExhausted(day), false);
+  recordSpend(0.01, day);
+  assert.equal(budgetExhausted(day), true);
+});
+
+// A search can come back successful and empty. There is no error block, the turn
+// ends cleanly, and the analysis reads like every other one, but nothing grounded
+// it. Counting the results is the only way that shows up anywhere.
+test('a search that returned nothing is not counted as grounding', () => {
+  const msg = {
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'server_tool_use', name: 'web_search', input: { query: 'a' } },
+      { type: 'web_search_tool_result', content: [] },
+      { type: 'server_tool_use', name: 'web_search', input: { query: 'b' } },
+      { type: 'web_search_tool_result', content: [] },
+      { type: 'text', text: '{}' }
+    ]
+  };
+  assert.deepEqual(webSearchUsage(msg), { searches: 2, errors: [], results: 0 });
+});
+
+test('results are counted across every search in the turn', () => {
+  const msg = {
+    content: [
+      { type: 'web_search_tool_result', content: [{ type: 'web_search_result' }, { type: 'web_search_result' }] },
+      { type: 'web_search_tool_result', content: [{ type: 'web_search_result' }] }
+    ]
+  };
+  assert.equal(webSearchUsage(msg).results, 3);
+});
+
+// Citation lookups are cheap, unauthenticated and can fire several times on one
+// page. Sharing a single ceiling with analyses would let an afternoon of clicking
+// spend the day the analyses needed, so lookups get a slice rather than the run of it.
+
+test('lookups cannot take more of the day than their own slice', () => {
+  const day = Date.UTC(2026, 8, 20, 9);
+  recordSpend(DAILY_LOOKUP_BUDGET_USD, day, 'lookup');
+  assert.equal(budgetExhausted(day, 'lookup'), true);
+});
+
+test('an analysis is never turned away by what lookups spent', () => {
+  const day = Date.UTC(2026, 8, 21, 9);
+  recordSpend(DAILY_LOOKUP_BUDGET_USD, day, 'lookup');
+  assert.equal(budgetExhausted(day, 'analysis'), false);
+});
+
+test('what lookups spend still counts toward the day', () => {
+  const day = Date.UTC(2026, 8, 22, 9);
+  recordSpend(1, day, 'lookup');
+  recordSpend(2, day, 'analysis');
+  assert.equal(Number(spentToday(day).toFixed(4)), 3);
+});
+
+test('lookups stop when the whole day is spent, slice or no slice', () => {
+  const day = Date.UTC(2026, 8, 23, 9);
+  recordSpend(DAILY_BUDGET_USD, day, 'analysis');
+  assert.equal(budgetExhausted(day, 'lookup'), true);
+});
+
+// ─── What the wait shows ──────────────────────────────────────────────────────
+// Nothing renders until the searches finish, which is most of a minute at best.
+// The searches themselves arrive long before that, as q: lines, so the wait can
+// show what is actually happening rather than a spinner and a promise.
+
+function searchQueries(buf) {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  return new Function(
+    `${sliceFunction(appSrc, 'extractSearchQueries')}\nreturn extractSearchQueries;`)()(buf);
+}
+
+test('each search shows up once the model has finished writing it', () => {
+  assert.deepEqual(searchQueries('q:participatory budgeting trust\nq:porto alegre outcomes\n'),
+    ['participatory budgeting trust', 'porto alegre outcomes']);
+});
+
+test('a search still being written is not shown half-typed', () => {
+  assert.deepEqual(searchQueries('q:participatory budgeting trust\nq:porto ale'),
+    ['participatory budgeting trust']);
+});
+
+test('a search is complete once the JSON has started, newline or not', () => {
+  assert.deepEqual(searchQueries('q:a\nq:b{"strength": 60'), ['a', 'b']);
+});
+
+// The model drops back into prose when a search goes wrong, and that prose is not
+// for the reader: it is the model talking to itself about rate limits.
+test('anything the model writes that is not a search is not shown', () => {
+  const buf = 'q:basic income labour supply\nWaiting for rate limit to reset.The search tool appears rate-limited.\n';
+  assert.deepEqual(searchQueries(buf), ['basic income labour supply']);
+});
+
+test('a q: inside the analysis itself is not mistaken for a search', () => {
+  assert.deepEqual(searchQueries('q:a\n{"summary": "q:not a search"}'), ['a']);
+});
+
+test('an answer that came back with no searches at all shows nothing', () => {
+  assert.deepEqual(searchQueries('{"strength": 60'), []);
+  assert.deepEqual(searchQueries(''), []);
+});
+
+// The analysis is the outermost object in the buffer. A raw newline inside a string
+// value makes it fail a strict parse, which is the whole reason parseJSON exists, so
+// strictness is the wrong test for which object to take: the first one that passes it
+// is an evidence item, and rendering that wipes every section already on screen.
+test('a repairable analysis is preferred over a child of it that parses cleanly', () => {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const extract = new Function(
+    [sliceFunction(appSrc, 'parseJSON'), sliceFunction(appSrc, 'isRecoverableJson'),
+     sliceFunction(appSrc, 'extractJsonObject'), 'return extractJsonObject;'].join('\n'))();
+
+  const buf = 'q:mutual aid trust\n{"strength": 62, "summary": "Line one\nLine two", "evidence_for": [{"title": "T"}]}';
+  assert.match(extract(buf), /^\{"strength": 62/);
+});
+
+test('a brace in the narration is still skipped, repairable or not', () => {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const extract = new Function(
+    [sliceFunction(appSrc, 'parseJSON'), sliceFunction(appSrc, 'isRecoverableJson'),
+     sliceFunction(appSrc, 'extractJsonObject'), 'return extractJsonObject;'].join('\n'))();
+
+  assert.equal(extract('I will return {the analysis} once I have searched.\n{"strength": 62}'), '{"strength": 62}');
+});
+
+// Same assumption, other function: the first brace in the buffer is not necessarily
+// the analysis, and cutting there stops the searches rendering for the rest of the wait.
+test('a brace in the narration does not stop the searches from showing', () => {
+  assert.deepEqual(searchQueries('q:a\nI will return {the analysis} next.\nq:b\n'), ['a', 'b']);
+});
+
+// ─── Reserving before spending ────────────────────────────────────────────────
+// An analysis takes minutes, and what it cost is only known at the end. Charging
+// the day only then leaves a window where every request that starts sees a budget
+// that six other running analyses have already committed.
+
+test('a reservation is charged the moment the analysis starts', () => {
+  const day = Date.UTC(2026, 9, 1, 9);
+  reserveSpend(day);
+  assert.ok(spentToday(day) > 0, 'nothing was charged until the analysis finished');
+});
+
+test('settling replaces the estimate with what the analysis actually cost', () => {
+  const day = Date.UTC(2026, 9, 2, 9);
+  const reservation = reserveSpend(day);
+  settleSpend(reservation, 0.42, day);
+  assert.equal(Number(spentToday(day).toFixed(4)), 0.42);
+});
+
+test('an analysis that never finished stays charged at the estimate', () => {
+  const day = Date.UTC(2026, 9, 3, 9);
+  const before = spentToday(day);
+  reserveSpend(day);
+  assert.ok(spentToday(day) > before, 'a failed run cost searches and tokens and must still count');
+});
+
+test('a reservation made yesterday does not subtract from today', () => {
+  const yesterday = Date.UTC(2026, 9, 4, 23);
+  const today = Date.UTC(2026, 9, 5, 1);
+  const reservation = reserveSpend(yesterday);
+  settleSpend(reservation, 0.42, today);
+  assert.equal(Number(spentToday(today).toFixed(4)), 0.42);
 });

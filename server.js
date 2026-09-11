@@ -193,6 +193,78 @@ app.use(express.static(join(__dirname, 'public'), {
   }
 }));
 
+// Opus 4.8 list prices, in dollars. A search costs $10 per thousand on top of the
+// tokens its results bring back with them, and those tokens are the larger half.
+const PRICE_PER_INPUT_TOKEN = 5 / 1e6;
+const PRICE_PER_OUTPUT_TOKEN = 25 / 1e6;
+const PRICE_PER_CACHE_READ_TOKEN = 0.5 / 1e6;
+const PRICE_PER_CACHE_WRITE_TOKEN = 6.25 / 1e6;
+const PRICE_PER_SEARCH = 10 / 1000;
+
+function analysisCost(usage) {
+  const u = usage || {};
+  const n = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
+  return n(u.input_tokens) * PRICE_PER_INPUT_TOKEN
+    + n(u.output_tokens) * PRICE_PER_OUTPUT_TOKEN
+    + n(u.cache_read_input_tokens) * PRICE_PER_CACHE_READ_TOKEN
+    + n(u.cache_creation_input_tokens) * PRICE_PER_CACHE_WRITE_TOKEN
+    + n(u.server_tool_use && u.server_tool_use.web_search_requests) * PRICE_PER_SEARCH;
+}
+
+// What one day of new analyses may cost. Past it, anything already in the cache
+// still answers and anything new waits for tomorrow. The figure is kept on disk
+// beside the cache: a redeploy in the middle of a runaway day would otherwise hand
+// the next visitor a fresh budget.
+const DAILY_BUDGET_USD = Number(process.env.DAILY_BUDGET_USD || 25);
+// Citation lookups cost cents rather than dollars, fire several times on one page,
+// and need no account, so on a shared ceiling an afternoon of clicking could spend
+// the day the analyses needed. They get a slice instead, which leaves an analysis
+// with at least DAILY_BUDGET_USD minus this figure however busy the lookups get.
+const DAILY_LOOKUP_BUDGET_USD = Number(process.env.DAILY_LOOKUP_BUDGET_USD || 5);
+let spend = { day: '', usd: 0, lookupUsd: 0 };
+
+function utcDay(now) { return new Date(now).toISOString().slice(0, 10); }
+
+function recordSpend(usd, now = Date.now(), purpose = 'analysis') {
+  const day = utcDay(now);
+  if (spend.day !== day) spend = { day, usd: 0, lookupUsd: 0 };
+  spend.usd += usd;
+  if (purpose === 'lookup') spend.lookupUsd += usd;
+  saveSpendToDisk();
+  return spend.usd;
+}
+
+function spentToday(now = Date.now()) {
+  return spend.day === utcDay(now) ? spend.usd : 0;
+}
+
+function spentOnLookupsToday(now = Date.now()) {
+  return spend.day === utcDay(now) ? spend.lookupUsd : 0;
+}
+
+// An analysis runs for minutes and only reports what it cost at the end. Charging
+// the day then leaves a window in which every request that starts reads a budget
+// that the analyses already running have committed and not yet reported. So the
+// day is charged an estimate up front and corrected once the real figure arrives.
+const ANALYSIS_ESTIMATE_USD = 0.3;
+
+function reserveSpend(now = Date.now()) {
+  recordSpend(ANALYSIS_ESTIMATE_USD, now);
+  return { usd: ANALYSIS_ESTIMATE_USD, day: utcDay(now) };
+}
+
+// A run that never reports back keeps its estimate. It had already paid for its
+// searches and its tokens by then, so forgetting it would understate the day.
+function settleSpend(reservation, actualUsd, now = Date.now()) {
+  if (!reservation || reservation.day !== utcDay(now)) return recordSpend(actualUsd, now);
+  return recordSpend(actualUsd - reservation.usd, now);
+}
+
+function budgetExhausted(now = Date.now(), purpose = 'analysis') {
+  if (spentToday(now) >= DAILY_BUDGET_USD) return true;
+  return purpose === 'lookup' && spentOnLookupsToday(now) >= DAILY_LOOKUP_BUDGET_USD;
+}
+
 const MAX_INPUT_LEN = 200;
 const CACHE_MAX = 1000;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -214,6 +286,35 @@ function loadCacheFromDisk() {
     console.log(`Loaded ${cache.size} analyze cache entries from disk`);
   } catch (err) {
     if (err.code !== 'ENOENT') console.warn('Cache load failed:', err.message);
+  }
+}
+
+const SPEND_FILE = join(CACHE_DIR, 'daily-spend.json');
+
+function loadSpendFromDisk() {
+  try {
+    const d = JSON.parse(readFileSync(SPEND_FILE, 'utf8'));
+    if (d && typeof d.day === 'string' && typeof d.usd === 'number') {
+      // A hand-edited or corrupted figure below zero would disable the ceiling for
+      // the rest of the day, which is the one thing this file must not be able to do.
+      spend = {
+        day: d.day,
+        usd: Math.max(0, d.usd),
+        lookupUsd: Math.max(0, typeof d.lookupUsd === 'number' ? d.lookupUsd : 0)
+      };
+    }
+    if (spentToday() > 0) console.log(`Spent so far today: $${spentToday().toFixed(2)} of $${DAILY_BUDGET_USD}`);
+  } catch (err) {
+    if (err.code !== 'ENOENT') console.warn('Spend load failed:', err.message);
+  }
+}
+
+function saveSpendToDisk() {
+  try {
+    mkdirSync(CACHE_DIR, { recursive: true });
+    writeFileSync(SPEND_FILE, JSON.stringify(spend));
+  } catch (err) {
+    console.warn('Spend save failed:', err.message);
   }
 }
 
@@ -239,6 +340,7 @@ function scheduleCacheSave() {
 }
 
 loadCacheFromDisk();
+loadSpendFromDisk();
 
 function cacheGet(key) {
   const entry = cache.get(key);
@@ -262,9 +364,15 @@ function cacheSet(key, text) {
   scheduleCacheSave();
 }
 
+// How many searches one analysis may run. Each costs about $0.02 and four to five
+// seconds of the wait before the first token.
+const ANALYZE_SEARCH_MAX_USES = 3;
+
 const analyzeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  // Each uncached analysis costs real money now, so this is a spend limit as much
+  // as an abuse limit. Five is about as many theories as one sitting produces.
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please wait a few minutes and try again.' }
@@ -295,11 +403,21 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
     return res.end();
   }
 
+  if (budgetExhausted()) {
+    console.warn(`analyze refused: $${spentToday().toFixed(2)} spent today against a $${DAILY_BUDGET_USD} budget`);
+    res.write(`data: ${JSON.stringify({ error: "Today's limit on new analyses has been reached. Theories already explored today still load, and new ones resume tomorrow." })}\n\n`);
+    return res.end();
+  }
+
+  const reservation = reserveSpend();
+
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   const prompt = `You are an expert in social change theory, history, and empirical research. Analyze this theory of change: "Doing '${action}' will create '${change}' in the world."
 
 Work from sources to claims, never the reverse. For the two evidence sections: first establish what research and documented cases actually found about this question, then state each finding, then place it in the column its content supports. Never pick a column, write a claim to fill it, and attach a citation afterwards.
+
+Search the web before you write anything, and let what comes back outrank what you remember — your training data is older than the question. Where search turns up nothing usable, answer from what you know and set as_of to the year of the evidence you are leaning on rather than to this year.
 
 Weighing sources against each other:
 - For a claim about a quantity that moves (adoption, usage, polling, prices, error rates), the most recent credible measurement wins outright.
@@ -314,7 +432,9 @@ Be specific — cite real movements, researchers, and cases. Be concise: 1-2 sen
 
 Score 70–100 as Strong if there is robust peer-reviewed evidence across multiple contexts; 40–69 as Moderate if evidence exists but is mixed or context-dependent; 10–39 as Weak if evidence is thin or contested; 0–9 as Speculative if there is little to no empirical basis.
 
-Return ONLY valid JSON:
+Before the JSON, write nothing a person would read. No sentences, no plan, no summary of what a search returned. If you write anything at all between searches, it is one line per search in the form q:<keywords> and nothing else.
+
+Then return ONLY valid JSON, with nothing after it:
 {
   "strength": <integer 0-100>,
   "strength_label": "<Strong | Moderate | Weak | Speculative>",
@@ -330,8 +450,22 @@ Return ONLY valid JSON:
   try {
     const stream = client.messages.stream({
       model: process.env.CLAUDE_MODEL || 'claude-opus-4-8',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }]
+      // A measured grounded run emitted 3,699 output tokens, and the search notation
+      // comes out of the same budget. Hitting the cap truncates the JSON, which the
+      // page then repairs into a half analysis without saying so.
+      max_tokens: 8192,
+      // The current search variant runs code execution under the hood, which is why
+      // code_execution must not also be declared here — two execution environments
+      // confuse the model. Step 3 of docs/PRD-evidence-freshness.md tunes the cap.
+      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: ANALYZE_SEARCH_MAX_USES }],
+      // The bill here is not the searches, it is their results being read again on
+      // every pass of the server-side tool loop. Web search writes its own cache
+      // entry after each result block, but only once the request is caching at all,
+      // which is what this marker is for. The prompt is about 1,130 tokens against a
+      // 1,024-token minimum on this model, so it only just qualifies: if it is ever
+      // shortened, cache_write in the analyze log line goes to zero and the loop
+      // silently returns to full price.
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt, cache_control: { type: 'ephemeral' } }] }]
     });
 
     let full = '';
@@ -340,8 +474,31 @@ Return ONLY valid JSON:
       res.write(`data: ${JSON.stringify({ chunk: text })}\n\n`);
     });
 
-    stream.on('finalMessage', () => {
-      cacheSet(cacheKey, full);
+    stream.on('finalMessage', (msg) => {
+      const { searches, errors, results } = webSearchUsage(msg);
+      for (const code of errors) console.warn(`analyze web search failed: ${code}`);
+      // A turn can search, get nothing back, and answer from training data anyway.
+      // It ends cleanly and reads like any other analysis, so this line is the only
+      // place the difference between a grounded answer and an ungrounded one shows.
+      if (results === 0) console.warn('analyze was not grounded: no search results came back');
+      const u = msg?.usage || {};
+      console.log([
+        `analyze: ${searches} search(es)`,
+        `${errors.length} search error(s)`,
+        `stop_reason=${msg?.stop_reason}`,
+        `in=${u.input_tokens ?? '?'}`,
+        `out=${u.output_tokens ?? '?'}`,
+        `cache_read=${u.cache_read_input_tokens ?? 0}`,
+        `cache_write=${u.cache_creation_input_tokens ?? 0}`,
+        // The API's own count of billable searches, which is what the invoice reads,
+        // rather than the blocks the model happened to leave in the transcript.
+        `billed_searches=${u.server_tool_use?.web_search_requests ?? '?'}`,
+        `results=${results}`,
+        `cost=$${analysisCost(u).toFixed(4)}`,
+        `spent_today=$${settleSpend(reservation, analysisCost(u)).toFixed(2)}/${DAILY_BUDGET_USD}`
+      ].join(', '));
+      if (isCompleteAnalysis(msg)) cacheSet(cacheKey, full);
+      else console.warn(`analyze not cached: turn ended on ${msg?.stop_reason}`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
     });
@@ -472,6 +629,24 @@ function textFromContent(content) {
     .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
     .map((b) => b.text)
     .join('\n');
+}
+
+// The same two questions the lookup endpoint asks, read off one message: how many
+// searches ran, which of them failed, and how much they found. An analysis that
+// searched and got nothing back reads exactly like one that searched and got
+// everything, so results is the only number that separates them.
+function webSearchUsage(msg) {
+  const content = Array.isArray(msg?.content) ? msg.content : [];
+  const searches = content.filter((b) => b && b.type === 'server_tool_use' && b.name === 'web_search').length;
+  return { searches, errors: searchErrors(content), results: searchResultCount(content) };
+}
+
+// Only a turn the model ended itself holds the whole analysis. The server-side tool
+// loop stops at ten iterations with pause_turn, and a grounded answer runs longer
+// than an ungrounded one, so the token cap is closer than it was. Either way the
+// JSON is cut off, and the 24-hour cache would hand that to everyone who follows.
+function isCompleteAnalysis(msg) {
+  return msg?.stop_reason === 'end_turn';
 }
 
 // An empty URL is a fine thing to remember for a week when the model looked and
@@ -683,4 +858,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, reserveSpend, settleSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };

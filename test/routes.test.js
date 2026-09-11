@@ -46,7 +46,7 @@ delete process.env.RESEND_API_KEY;
 delete process.env.CURATOR_API_URL;
 delete process.env.FEEDBACK_TO;
 
-const { app, inlineScriptHashes } = await import('../server.js');
+const { app, inlineScriptHashes, cacheSet, recordSpend, DAILY_BUDGET_USD } = await import('../server.js');
 
 const server = app.listen(0);
 await once(server, 'listening');
@@ -121,11 +121,34 @@ test('analyze rejects a body over the 4kb JSON limit', async () => {
   assert.equal(res.status, 413);
 });
 
-test('analyze enforces its rate limit of 20 per 15 minutes', async () => {
+test('analyze enforces its rate limit of 5 per 15 minutes', async () => {
   const ip = '10.9.9.1';
-  for (let i = 0; i < 20; i++) await post('/api/analyze', {}, { ip });
+  for (let i = 0; i < 5; i++) assert.notEqual((await post('/api/analyze', {}, { ip })).status, 429);
   const res = await post('/api/analyze', {}, { ip });
   assert.equal(res.status, 429);
+});
+
+// These two run last in this section: spending the day is global state, and every
+// analyze test after them would be turned away by the budget rather than by what
+// it meant to check.
+
+test('an analysis already in the cache still answers after the day is spent', async () => {
+  process.env.ANTHROPIC_API_KEY = 'never-used-no-request-is-made';
+  cacheSet('mutual aid|||less isolation', '{"strength": 50}');
+  recordSpend(DAILY_BUDGET_USD);
+  const res = await post('/api/analyze', { action: 'Mutual Aid', change: 'Less Isolation' });
+  const body = await res.text();
+  delete process.env.ANTHROPIC_API_KEY;
+  assert.match(body, /"strength\\": 50/);
+});
+
+test('a new theory is turned away once the day is spent, rather than billed', async () => {
+  process.env.ANTHROPIC_API_KEY = 'never-used-no-request-is-made';
+  recordSpend(DAILY_BUDGET_USD);
+  const res = await post('/api/analyze', { action: 'composting', change: 'less landfill' });
+  const body = await res.text();
+  delete process.env.ANTHROPIC_API_KEY;
+  assert.match(body, /Today's limit on new analyses has been reached/);
 });
 
 // ─── POST /api/feedback ───────────────────────────────────────────────────────

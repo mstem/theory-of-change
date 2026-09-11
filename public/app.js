@@ -716,9 +716,23 @@ const SECTIONS_IN_ORDER = [
 let _renderedSections = new Set();
 let _partialData = {};
 
+let _shownQueries = -1;
+
 function resetProgressiveState() {
   _renderedSections = new Set();
   _partialData = {};
+  _shownQueries = -1;
+  const queries = document.getElementById('loading-queries');
+  if (queries) queries.innerHTML = '';
+}
+
+function renderSearchProgress(buffer) {
+  const el = document.getElementById('loading-queries');
+  if (!el) return;
+  const queries = extractSearchQueries(buffer);
+  if (queries.length === _shownQueries) return;
+  _shownQueries = queries.length;
+  el.innerHTML = queries.map((q) => `<li>${escapeHtml(q)}</li>`).join('');
 }
 
 function injectSkeletons() {
@@ -837,6 +851,65 @@ function tryProgressiveRender(buffer, action, change) {
   return renderedAny;
 }
 
+// The model writes one q:<keywords> line per search before the JSON starts, which
+// is the only account anyone gets of a wait that runs from a minute upwards. Read
+// only that notation: when a search fails the model drops back into prose about
+// rate limits, and that is it talking to itself, not to the reader.
+function extractSearchQueries(buf) {
+  // The analysis opens with a quoted key. A brace in the narration does not, and
+  // cutting the preamble there would stop the searches rendering for the rest of
+  // the wait, which is most of it.
+  const jsonAt = buf.search(/\{\s*"/);
+  const preamble = jsonAt < 0 ? buf : buf.slice(0, jsonAt);
+  const lines = preamble.split('\n');
+  // Without the JSON to close it, the last line may still be arriving.
+  if (jsonAt < 0 && !preamble.endsWith('\n')) lines.pop();
+  return lines
+    .map((line) => line.match(/^q:\s*(.+?)\s*$/))
+    .filter(Boolean)
+    .map((m) => m[1]);
+}
+
+// Strictness is the wrong test for which object is the analysis. A raw newline
+// inside a string value fails a strict parse, and repairing exactly that is what
+// parseJSON is for, so a strict test walks past the analysis and settles on the
+// first evidence item instead. Anything the narration leaves behind is beyond
+// repair, which is what keeps this from matching a stray brace.
+function isRecoverableJson(span) {
+  try { JSON.parse(span); return true; } catch (_) {}
+  try { parseJSON(span); return true; } catch (_) { return false; }
+}
+
+// A grounded response is no longer JSON and nothing else: the model narrates before
+// it searches, and that narration lands in the same buffer. Take the first complete
+// brace-balanced span that parses. Everything from the first brace to the last one
+// survives only while the narration happens to contain no braces of its own.
+function extractJsonObject(buf) {
+  let firstComplete = null;
+  for (let start = buf.indexOf('{'); start >= 0; start = buf.indexOf('{', start + 1)) {
+    let depth = 0, inStr = false, closed = false;
+    for (let i = start; i < buf.length; i++) {
+      const c = buf[i];
+      if (c === '\\' && inStr) { i++; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === '{') depth++;
+      else if (c === '}' && --depth === 0) {
+        closed = true;
+        const span = buf.slice(start, i + 1);
+        if (firstComplete === null) firstComplete = span;
+        if (isRecoverableJson(span)) return span;
+        break;
+      }
+    }
+    // This brace never closed, so it is a truncated answer and every brace after it
+    // is one of its own children. Returning a child would throw away the analysis
+    // around it; hand the truncated span to parseJSON, which repairs some of it.
+    if (!closed) return firstComplete || buf.slice(start);
+  }
+  return firstComplete;
+}
+
 // ─── Robust JSON parser ───────────────────────────────────────────────────────
 // Claude's output occasionally contains JSON-illegal raw control chars inside
 // string values (newlines, tabs, CR) — JSON forbids U+0000..U+001F unescaped
@@ -917,6 +990,7 @@ async function analyze() {
   btn.disabled = true;
   resetProgressiveState();
   injectSkeletons();
+  scrollPastHero('loading');
 
   let buffer = '';
   let resultsShown = false;
@@ -947,16 +1021,22 @@ async function analyze() {
         if (line.startsWith('data: ')) {
           const payload = JSON.parse(line.slice(6));
           if (payload.chunk) buffer += payload.chunk;
-          if (payload.error) throw new Error(payload.error);
+          if (payload.error) {
+            // Written by the server for this reader, so it survives the catch below
+            // rather than being replaced by a suggestion to try again.
+            const err = new Error(payload.error);
+            err.fromServer = true;
+            throw err;
+          }
           if (payload.done) {
-            const jsonStr = buffer.match(/\{[\s\S]*\}/)?.[0];
+            const jsonStr = extractJsonObject(buffer);
             if (!jsonStr) throw new Error('No JSON in response');
             const data = parseJSON(jsonStr);
             renderResults(data, action, change); // final safety pass — idempotent
             document.getElementById('loading').classList.remove('visible');
             if (!resultsShown) {
               document.getElementById('results').classList.add('visible');
-              scrollToResults();
+              scrollPastHero('results');
               resultsShown = true;
               document.querySelector('.cta-hint').textContent = t('results.found') || 'We found evidence, examples, and hard questions';
             }
@@ -964,12 +1044,14 @@ async function analyze() {
           }
         }
       }
+      renderSearchProgress(buffer);
+
       // After each chunk, try to render any newly-complete sections
       if (payload_chunk_arrived(buffer)) {
         if (tryProgressiveRender(buffer, action, change) && !resultsShown) {
           document.getElementById('loading').classList.remove('visible');
           document.getElementById('results').classList.add('visible');
-          scrollToResults();
+          scrollPastHero('results');
           resultsShown = true;
           document.querySelector('.cta-hint').textContent = t('results.found') || 'We found evidence, examples, and hard questions';
         }
@@ -978,9 +1060,10 @@ async function analyze() {
   } catch (err) {
     console.error('analyze error:', err);
     document.getElementById('loading').classList.remove('visible');
-    const msg = /input stream|network|fetch|failed to fetch/i.test(err.message)
-      ? 'The connection was interrupted. Please check your network and try again.'
-      : 'Something went wrong. Please try again.';
+    const msg = err.fromServer ? err.message
+      : /input stream|network|fetch|failed to fetch/i.test(err.message)
+        ? 'The connection was interrupted. Please check your network and try again.'
+        : 'Something went wrong. Please try again.';
     showErrorBanner(msg);
     btn.disabled = false;
     document.getElementById('hero').classList.remove('shrunk');
@@ -1005,9 +1088,12 @@ document.getElementById('error-banner-close').addEventListener('click', () => {
 // first. Otherwise (e.g., on cached responses that arrive before the 600ms
 // hero transition completes) we'd scroll to the pre-shrink position and land
 // well below the diagram.
-function scrollToResults() {
+// The wait now runs from a minute upwards, and what it shows is below the hero.
+// Bring it into view the moment the hero has finished shrinking, or the searches
+// scroll past unseen and the page looks like it did nothing.
+function scrollPastHero(targetId) {
   const hero = document.getElementById('hero');
-  const target = document.getElementById('results');
+  const target = document.getElementById(targetId);
   let fired = false;
   function go() {
     if (fired) return;
