@@ -19,6 +19,11 @@ const {
   textFromContent,
   webSearchUsage,
   isCompleteAnalysis,
+  analysisCost,
+  recordSpend,
+  spentToday,
+  budgetExhausted,
+  DAILY_BUDGET_USD,
   isConclusiveLookup,
   cacheGet,
   cacheSet,
@@ -563,7 +568,7 @@ test('a failed web search is reported rather than read as a result', () => {
       { type: 'text', text: '{}' }
     ]
   };
-  assert.deepEqual(webSearchUsage(msg), { searches: 1, errors: ['max_uses_exceeded'] });
+  assert.deepEqual(webSearchUsage(msg), { searches: 1, errors: ['max_uses_exceeded'], results: 0 });
 });
 
 test('a web search that returned results counts as grounding, not as an error', () => {
@@ -575,17 +580,17 @@ test('a web search that returned results counts as grounding, not as an error', 
       { type: 'text', text: '{}' }
     ]
   };
-  assert.deepEqual(webSearchUsage(msg), { searches: 1, errors: [] });
+  assert.deepEqual(webSearchUsage(msg), { searches: 1, errors: [], results: 1 });
 });
 
 test('an analysis the model answered without searching reports no searches', () => {
   assert.deepEqual(webSearchUsage({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{}' }] }),
-    { searches: 0, errors: [] });
+    { searches: 0, errors: [], results: 0 });
 });
 
 test('a response with no content block array is not mistaken for a grounded one', () => {
-  assert.deepEqual(webSearchUsage(undefined), { searches: 0, errors: [] });
-  assert.deepEqual(webSearchUsage({ content: 'not blocks' }), { searches: 0, errors: [] });
+  assert.deepEqual(webSearchUsage(undefined), { searches: 0, errors: [], results: 0 });
+  assert.deepEqual(webSearchUsage({ content: 'not blocks' }), { searches: 0, errors: [], results: 0 });
 });
 
 // The 24-hour cache is what makes the search cost bearable, and it is also what
@@ -643,4 +648,89 @@ test('a response cut off before its closing brace still yields something to repa
 
   const buf = '{"strength": 62, "evidence_for": [{"title": "t"}], "summary": "cut off here';
   assert.match(extract(buf), /^\{"strength": 62/);
+});
+
+// The model writes something before the JSON whatever the prompt says, and every
+// character of it is billed output the reader never sees. The instruction can only
+// make that preamble cheap, so it is worth pinning that the instruction is there.
+test('the prompt holds the preamble to a machine notation rather than prose', () => {
+  const src = readFileSync(join(import.meta.dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /Before the JSON, write nothing a person would read/);
+  assert.match(src, /one line per search in the form q:<keywords>/);
+});
+
+// ─── What a grounded analysis costs ───────────────────────────────────────────
+// Published Opus 4.8 rates: $5 per million input tokens, $25 per million output,
+// a tenth of input for a cache read, and $10 per thousand searches.
+
+test('the cost of an analysis is its tokens plus its searches', () => {
+  const usd = analysisCost({
+    input_tokens: 100_000,
+    output_tokens: 2_000,
+    server_tool_use: { web_search_requests: 3 }
+  });
+  assert.equal(Number(usd.toFixed(4)), 0.5800); // 0.50 + 0.05 + 0.03
+});
+
+test('a cache read costs a tenth of what reading it fresh would', () => {
+  const usd = analysisCost({ input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 1_000_000 });
+  assert.equal(Number(usd.toFixed(4)), 0.5);
+});
+
+test('a usage object the API did not send costs nothing rather than NaN', () => {
+  assert.equal(analysisCost(undefined), 0);
+  assert.equal(analysisCost({}), 0);
+});
+
+// ─── The daily ceiling ────────────────────────────────────────────────────────
+
+test('spend accumulates across the analyses run in one day', () => {
+  const noon = Date.UTC(2026, 8, 11, 12);
+  recordSpend(0.4, noon);
+  recordSpend(0.6, noon);
+  assert.equal(Number(spentToday(noon).toFixed(4)), 1);
+});
+
+test('spend starts again when the day rolls over', () => {
+  const day1 = Date.UTC(2026, 8, 12, 23);
+  const day2 = Date.UTC(2026, 8, 13, 1);
+  recordSpend(5, day1);
+  assert.equal(spentToday(day1), 5);
+  assert.equal(spentToday(day2), 0);
+});
+
+test('the ceiling is reached at the budget, not past it', () => {
+  const day = Date.UTC(2026, 8, 14, 9);
+  assert.equal(budgetExhausted(day), false);
+  recordSpend(DAILY_BUDGET_USD - 0.01, day);
+  assert.equal(budgetExhausted(day), false);
+  recordSpend(0.01, day);
+  assert.equal(budgetExhausted(day), true);
+});
+
+// A search can come back successful and empty. There is no error block, the turn
+// ends cleanly, and the analysis reads like every other one, but nothing grounded
+// it. Counting the results is the only way that shows up anywhere.
+test('a search that returned nothing is not counted as grounding', () => {
+  const msg = {
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'server_tool_use', name: 'web_search', input: { query: 'a' } },
+      { type: 'web_search_tool_result', content: [] },
+      { type: 'server_tool_use', name: 'web_search', input: { query: 'b' } },
+      { type: 'web_search_tool_result', content: [] },
+      { type: 'text', text: '{}' }
+    ]
+  };
+  assert.deepEqual(webSearchUsage(msg), { searches: 2, errors: [], results: 0 });
+});
+
+test('results are counted across every search in the turn', () => {
+  const msg = {
+    content: [
+      { type: 'web_search_tool_result', content: [{ type: 'web_search_result' }, { type: 'web_search_result' }] },
+      { type: 'web_search_tool_result', content: [{ type: 'web_search_result' }] }
+    ]
+  };
+  assert.equal(webSearchUsage(msg).results, 3);
 });

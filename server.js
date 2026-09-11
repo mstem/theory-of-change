@@ -193,6 +193,49 @@ app.use(express.static(join(__dirname, 'public'), {
   }
 }));
 
+// Opus 4.8 list prices, in dollars. A search costs $10 per thousand on top of the
+// tokens its results bring back with them, and those tokens are the larger half.
+const PRICE_PER_INPUT_TOKEN = 5 / 1e6;
+const PRICE_PER_OUTPUT_TOKEN = 25 / 1e6;
+const PRICE_PER_CACHE_READ_TOKEN = 0.5 / 1e6;
+const PRICE_PER_CACHE_WRITE_TOKEN = 6.25 / 1e6;
+const PRICE_PER_SEARCH = 10 / 1000;
+
+function analysisCost(usage) {
+  const u = usage || {};
+  const n = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
+  return n(u.input_tokens) * PRICE_PER_INPUT_TOKEN
+    + n(u.output_tokens) * PRICE_PER_OUTPUT_TOKEN
+    + n(u.cache_read_input_tokens) * PRICE_PER_CACHE_READ_TOKEN
+    + n(u.cache_creation_input_tokens) * PRICE_PER_CACHE_WRITE_TOKEN
+    + n(u.server_tool_use && u.server_tool_use.web_search_requests) * PRICE_PER_SEARCH;
+}
+
+// What one day of new analyses may cost. Past it, anything already in the cache
+// still answers and anything new waits for tomorrow. The figure is kept on disk
+// beside the cache: a redeploy in the middle of a runaway day would otherwise hand
+// the next visitor a fresh budget.
+const DAILY_BUDGET_USD = Number(process.env.DAILY_BUDGET_USD || 25);
+let spend = { day: '', usd: 0 };
+
+function utcDay(now) { return new Date(now).toISOString().slice(0, 10); }
+
+function recordSpend(usd, now = Date.now()) {
+  const day = utcDay(now);
+  if (spend.day !== day) spend = { day, usd: 0 };
+  spend.usd += usd;
+  saveSpendToDisk();
+  return spend.usd;
+}
+
+function spentToday(now = Date.now()) {
+  return spend.day === utcDay(now) ? spend.usd : 0;
+}
+
+function budgetExhausted(now = Date.now()) {
+  return spentToday(now) >= DAILY_BUDGET_USD;
+}
+
 const MAX_INPUT_LEN = 200;
 const CACHE_MAX = 1000;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -214,6 +257,27 @@ function loadCacheFromDisk() {
     console.log(`Loaded ${cache.size} analyze cache entries from disk`);
   } catch (err) {
     if (err.code !== 'ENOENT') console.warn('Cache load failed:', err.message);
+  }
+}
+
+const SPEND_FILE = join(CACHE_DIR, 'daily-spend.json');
+
+function loadSpendFromDisk() {
+  try {
+    const d = JSON.parse(readFileSync(SPEND_FILE, 'utf8'));
+    if (d && typeof d.day === 'string' && typeof d.usd === 'number') spend = { day: d.day, usd: d.usd };
+    if (spentToday() > 0) console.log(`Spent so far today: $${spentToday().toFixed(2)} of $${DAILY_BUDGET_USD}`);
+  } catch (err) {
+    if (err.code !== 'ENOENT') console.warn('Spend load failed:', err.message);
+  }
+}
+
+function saveSpendToDisk() {
+  try {
+    mkdirSync(CACHE_DIR, { recursive: true });
+    writeFileSync(SPEND_FILE, JSON.stringify(spend));
+  } catch (err) {
+    console.warn('Spend save failed:', err.message);
   }
 }
 
@@ -239,6 +303,7 @@ function scheduleCacheSave() {
 }
 
 loadCacheFromDisk();
+loadSpendFromDisk();
 
 function cacheGet(key) {
   const entry = cache.get(key);
@@ -268,7 +333,9 @@ const ANALYZE_SEARCH_MAX_USES = 3;
 
 const analyzeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  // Each uncached analysis costs real money now, so this is a spend limit as much
+  // as an abuse limit. Five is about as many theories as one sitting produces.
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please wait a few minutes and try again.' }
@@ -299,6 +366,12 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
     return res.end();
   }
 
+  if (budgetExhausted()) {
+    console.warn(`analyze refused: $${spentToday().toFixed(2)} spent today against a $${DAILY_BUDGET_USD} budget`);
+    res.write(`data: ${JSON.stringify({ error: "Today's limit on new analyses has been reached. Theories already explored today still load, and new ones resume tomorrow." })}\n\n`);
+    return res.end();
+  }
+
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   const prompt = `You are an expert in social change theory, history, and empirical research. Analyze this theory of change: "Doing '${action}' will create '${change}' in the world."
@@ -320,7 +393,9 @@ Be specific — cite real movements, researchers, and cases. Be concise: 1-2 sen
 
 Score 70–100 as Strong if there is robust peer-reviewed evidence across multiple contexts; 40–69 as Moderate if evidence exists but is mixed or context-dependent; 10–39 as Weak if evidence is thin or contested; 0–9 as Speculative if there is little to no empirical basis.
 
-Return ONLY valid JSON, with nothing before or after it. Do not describe your searches:
+Before the JSON, write nothing a person would read. No sentences, no plan, no summary of what a search returned. If you write anything at all between searches, it is one line per search in the form q:<keywords> and nothing else.
+
+Then return ONLY valid JSON, with nothing after it:
 {
   "strength": <integer 0-100>,
   "strength_label": "<Strong | Moderate | Weak | Speculative>",
@@ -351,9 +426,28 @@ Return ONLY valid JSON, with nothing before or after it. Do not describe your se
     });
 
     stream.on('finalMessage', (msg) => {
-      const { searches, errors } = webSearchUsage(msg);
+      const { searches, errors, results } = webSearchUsage(msg);
       for (const code of errors) console.warn(`analyze web search failed: ${code}`);
-      console.log(`analyze: ${searches} search(es), ${errors.length} search error(s), stop_reason=${msg?.stop_reason}`);
+      // A turn can search, get nothing back, and answer from training data anyway.
+      // It ends cleanly and reads like any other analysis, so this line is the only
+      // place the difference between a grounded answer and an ungrounded one shows.
+      if (results === 0) console.warn('analyze was not grounded: no search results came back');
+      const u = msg?.usage || {};
+      console.log([
+        `analyze: ${searches} search(es)`,
+        `${errors.length} search error(s)`,
+        `stop_reason=${msg?.stop_reason}`,
+        `in=${u.input_tokens ?? '?'}`,
+        `out=${u.output_tokens ?? '?'}`,
+        `cache_read=${u.cache_read_input_tokens ?? 0}`,
+        `cache_write=${u.cache_creation_input_tokens ?? 0}`,
+        // The API's own count of billable searches, which is what the invoice reads,
+        // rather than the blocks the model happened to leave in the transcript.
+        `billed_searches=${u.server_tool_use?.web_search_requests ?? '?'}`,
+        `results=${results}`,
+        `cost=$${analysisCost(u).toFixed(4)}`,
+        `spent_today=$${recordSpend(analysisCost(u)).toFixed(2)}/${DAILY_BUDGET_USD}`
+      ].join(', '));
       if (isCompleteAnalysis(msg)) cacheSet(cacheKey, full);
       else console.warn(`analyze not cached: turn ended on ${msg?.stop_reason}`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
@@ -479,10 +573,13 @@ function textFromContent(content) {
 function webSearchUsage(msg) {
   const blocks = Array.isArray(msg?.content) ? msg.content : [];
   const searches = blocks.filter((b) => b && b.type === 'server_tool_use' && b.name === 'web_search').length;
+  const results = blocks
+    .filter((b) => b && b.type === 'web_search_tool_result' && Array.isArray(b.content))
+    .reduce((n, b) => n + b.content.length, 0);
   const errors = blocks
     .filter((b) => b && b.type === 'web_search_tool_result' && b.content && !Array.isArray(b.content))
     .map((b) => b.content.error_code || 'unknown_error');
-  return { searches, errors };
+  return { searches, errors, results };
 }
 
 // Only a turn the model ended itself holds the whole analysis. The server-side tool
@@ -643,4 +740,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, webSearchUsage, isCompleteAnalysis, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, spentToday, budgetExhausted, DAILY_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
