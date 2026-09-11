@@ -424,6 +424,15 @@ app.post('/api/feedback', feedbackLimiter, async (req, res) => {
 // The frontend calls this endpoint when a user clicks the "source" affordance.
 const SOURCE_URL_CACHE_MAX = 2000;
 const SOURCE_URL_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// A found link is a fact about the web and keeps for the week. "Nothing found"
+// is a fact about one search on one afternoon, and the same citation resolved on
+// the next attempt in testing, so it is held only long enough to stop a visitor
+// clicking the same dead affordance over and over.
+const SOURCE_URL_EMPTY_TTL_MS = 60 * 60 * 1000;
+
+function lookupTtl(url) {
+  return url ? SOURCE_URL_CACHE_TTL_MS : SOURCE_URL_EMPTY_TTL_MS;
+}
 const sourceUrlCache = new Map();
 const MAX_SOURCE_LEN = 200;
 const MAX_CONTEXT_LEN = 600;
@@ -463,9 +472,23 @@ function textFromContent(content) {
 // found nothing. A paused search turn or a reply cut off at the token cap looks
 // identical from the outside and is not — caching those would keep the failure
 // long after a retry would have worked.
+// Every error code the search tool reports: a rate limit, an internal failure,
+// a query it would not run, or the use ceiling below. On an error the block's
+// content is a single object; on success it is a list of results.
+function searchErrors(content) {
+  if (!Array.isArray(content)) return [];
+  return content
+    .filter((b) => b?.type === 'web_search_tool_result' && !Array.isArray(b.content))
+    .map((b) => b.content?.error_code || 'unknown');
+}
+
 function isConclusiveLookup(msg) {
   if (!msg || typeof msg !== 'object') return false;
   if (msg.stop_reason !== 'end_turn') return false;
+  // A search that failed and a search that found nothing both end the turn with
+  // {"url":""}. Only the error block distinguishes them, and without this check
+  // a rate limit gets remembered as though it were an answer.
+  if (searchErrors(msg.content).length > 0) return false;
   return textFromContent(msg.content).trim() !== '';
 }
 
@@ -493,7 +516,7 @@ app.post('/api/source-url', sourceUrlLimiter, async (req, res) => {
 
   const key = `${source.toLowerCase().trim()}|||${ctx.toLowerCase().trim()}`;
   const cached = sourceUrlCache.get(key);
-  if (cached && Date.now() - cached.t <= SOURCE_URL_CACHE_TTL_MS) {
+  if (cached && Date.now() - cached.t <= lookupTtl(cached.url)) {
     sourceUrlCache.delete(key);
     sourceUrlCache.set(key, cached);
     return res.json({ url: cached.url });
@@ -523,7 +546,12 @@ Return ONLY valid JSON: {"url": "<https URL>"}
       max_tokens: 1024,
       // 20250305 is the basic tool. The later variants run search from inside code
       // execution, which this model cannot do.
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }],
+      // Four, not two. The model's first choice of keywords is often wrong on a
+      // citation that names an organization rather than a document, and at two it
+      // spent the ceiling before it could reformulate: forcing that ceiling in
+      // testing turned a reliable lookup into a coin flip. Searches are billed
+      // per use, so the ceiling costs nothing on the runs that do not need it.
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }],
       messages: [{ role: 'user', content: prompt }]
     });
     const url = parseSourceUrl(textFromContent(msg.content));
@@ -609,4 +637,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, lookupTtl, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };

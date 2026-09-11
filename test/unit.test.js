@@ -18,6 +18,7 @@ const {
   parseSourceUrl,
   textFromContent,
   isConclusiveLookup,
+  lookupTtl,
   cacheGet,
   cacheSet,
   cache,
@@ -176,6 +177,54 @@ test('isConclusiveLookup rejects a finished turn that produced no text at all', 
     stop_reason: 'end_turn',
     content: [{ type: 'web_search_tool_result', tool_use_id: 'x', content: [] }]
   }), false);
+});
+
+// A search that failed is not a search that came back empty. Both end the turn
+// with a well-formed {"url":""}, so the error block is the only thing that tells
+// them apart, and caching the first as an answer strands the citation.
+
+test('isConclusiveLookup rejects a reply whose search hit the use limit', () => {
+  assert.equal(isConclusiveLookup({
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'web_search_tool_result', tool_use_id: 'a', content: [{ type: 'web_search_result', url: 'https://example.org/' }] },
+      { type: 'web_search_tool_result', tool_use_id: 'b', content: { type: 'web_search_tool_result_error', error_code: 'max_uses_exceeded' } },
+      { type: 'text', text: '{"url":""}' }
+    ]
+  }), false);
+});
+
+test('isConclusiveLookup rejects a reply whose search was rate limited', () => {
+  assert.equal(isConclusiveLookup({
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'web_search_tool_result', tool_use_id: 'a', content: { type: 'web_search_tool_result_error', error_code: 'too_many_requests' } },
+      { type: 'text', text: '{"url":""}' }
+    ]
+  }), false);
+});
+
+test('isConclusiveLookup accepts a search that ran and simply matched nothing', () => {
+  assert.equal(isConclusiveLookup({
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'web_search_tool_result', tool_use_id: 'a', content: [] },
+      { type: 'text', text: '{"url":""}' }
+    ]
+  }), true);
+});
+
+// ─── lookupTtl ────────────────────────────────────────────────────────────────
+// A found link is a fact about the web and keeps. "I did not find it" is a fact
+// about one search, and pinning that for a week strands a citation that the next
+// attempt would have resolved.
+
+test('lookupTtl keeps a found link for the full week', () => {
+  assert.equal(lookupTtl('https://example.org/report/'), 7 * 24 * 60 * 60 * 1000);
+});
+
+test('lookupTtl lets an empty result expire within the hour', () => {
+  assert.equal(lookupTtl(''), 60 * 60 * 1000);
 });
 
 test('isConclusiveLookup rejects a malformed message rather than trusting it', () => {
