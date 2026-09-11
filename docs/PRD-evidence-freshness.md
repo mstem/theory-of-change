@@ -1,6 +1,6 @@
 # PRD: Grounded evidence
 
-- Status: sections 1 and 2 signed off 10 September 2026; steps 1 and 2 built
+- Status: sections 1 and 2 signed off 10 September 2026; steps 1, 2 and 4 built
 - Author: drafted 10 September 2026, revised same day
 - Owner: Matt Stempeck
 
@@ -129,6 +129,8 @@ Once claims come from sources, the judgment moves to which sources to trust and 
    That run also showed the failure this feature can have without anyone noticing. The model spent its three searches, got nothing usable back, wrote "the web_search tool has hit a hard usage cap for this session and is not recovering", and answered from training data. The turn ended cleanly, the JSON was well formed, three searches were billed, and no error block appeared, so the analysis was indistinguishable from a grounded one. `webSearchUsage` now counts the results returned as well as the searches made, and an analysis that got zero results back warns. Grounded and ungrounded answers are the same price.
 3. **Tune the cap and the rubric together** against the three test cases in the success criteria. `max_uses` and the rubric wording interact — a tight cap makes the model ration searches in ways that change which claims get grounded.
 4. **Loading state.** Cover the pre-token gap. This is now a several-second wait on a surface that previously responded instantly.
+
+   Built 11 September 2026. The wait shows the searches themselves, one line each, as the model issues them: the `q:<keywords>` notation it writes before the JSON arrives seconds after submitting, where the first content does not arrive for a minute or more. Only that notation is rendered. When a search fails the model drops back into prose about rate limits, which is it talking to itself rather than to the reader, so `extractSearchQueries` matches the notation and ignores everything else. The block also gets height of its own and is scrolled into view as it opens, because it sits below a tall hero and was otherwise half under the fold with nothing able to scroll it clear, which reads as though the button did nothing.
 5. **Tests.** Parser coverage for a response containing search blocks, the search-error path, and the cap. Fixtures for all three test cases as regressions, matching the existing 104-test suite.
 6. **Measure in production for a week.** Searches per analysis, added cost per analysis, time to first token. Then revisit the cap and the rate limit.
 

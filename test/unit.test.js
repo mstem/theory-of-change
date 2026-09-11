@@ -764,3 +764,44 @@ test('lookups stop when the whole day is spent, slice or no slice', () => {
   recordSpend(DAILY_BUDGET_USD, day, 'analysis');
   assert.equal(budgetExhausted(day, 'lookup'), true);
 });
+
+// ─── What the wait shows ──────────────────────────────────────────────────────
+// Nothing renders until the searches finish, which is most of a minute at best.
+// The searches themselves arrive long before that, as q: lines, so the wait can
+// show what is actually happening rather than a spinner and a promise.
+
+function searchQueries(buf) {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  return new Function(
+    `${sliceFunction(appSrc, 'extractSearchQueries')}\nreturn extractSearchQueries;`)()(buf);
+}
+
+test('each search shows up once the model has finished writing it', () => {
+  assert.deepEqual(searchQueries('q:participatory budgeting trust\nq:porto alegre outcomes\n'),
+    ['participatory budgeting trust', 'porto alegre outcomes']);
+});
+
+test('a search still being written is not shown half-typed', () => {
+  assert.deepEqual(searchQueries('q:participatory budgeting trust\nq:porto ale'),
+    ['participatory budgeting trust']);
+});
+
+test('a search is complete once the JSON has started, newline or not', () => {
+  assert.deepEqual(searchQueries('q:a\nq:b{"strength": 60'), ['a', 'b']);
+});
+
+// The model drops back into prose when a search goes wrong, and that prose is not
+// for the reader: it is the model talking to itself about rate limits.
+test('anything the model writes that is not a search is not shown', () => {
+  const buf = 'q:basic income labour supply\nWaiting for rate limit to reset.The search tool appears rate-limited.\n';
+  assert.deepEqual(searchQueries(buf), ['basic income labour supply']);
+});
+
+test('a q: inside the analysis itself is not mistaken for a search', () => {
+  assert.deepEqual(searchQueries('q:a\n{"summary": "q:not a search"}'), ['a']);
+});
+
+test('an answer that came back with no searches at all shows nothing', () => {
+  assert.deepEqual(searchQueries('{"strength": 60'), []);
+  assert.deepEqual(searchQueries(''), []);
+});

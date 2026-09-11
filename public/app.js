@@ -719,6 +719,20 @@ let _partialData = {};
 function resetProgressiveState() {
   _renderedSections = new Set();
   _partialData = {};
+  _shownQueries = -1;
+  const queries = document.getElementById('loading-queries');
+  if (queries) queries.innerHTML = '';
+}
+
+let _shownQueries = -1;
+
+function renderSearchProgress(buffer) {
+  const el = document.getElementById('loading-queries');
+  if (!el) return;
+  const queries = extractSearchQueries(buffer);
+  if (queries.length === _shownQueries) return;
+  _shownQueries = queries.length;
+  el.innerHTML = queries.map((q) => `<li>${escapeHtml(q)}</li>`).join('');
 }
 
 function injectSkeletons() {
@@ -837,6 +851,22 @@ function tryProgressiveRender(buffer, action, change) {
   return renderedAny;
 }
 
+// The model writes one q:<keywords> line per search before the JSON starts, which
+// is the only account anyone gets of a wait that runs from a minute upwards. Read
+// only that notation: when a search fails the model drops back into prose about
+// rate limits, and that is it talking to itself, not to the reader.
+function extractSearchQueries(buf) {
+  const jsonAt = buf.indexOf('{');
+  const preamble = jsonAt < 0 ? buf : buf.slice(0, jsonAt);
+  const lines = preamble.split('\n');
+  // Without the JSON to close it, the last line may still be arriving.
+  if (jsonAt < 0 && !preamble.endsWith('\n')) lines.pop();
+  return lines
+    .map((line) => line.match(/^q:\s*(.+?)\s*$/))
+    .filter(Boolean)
+    .map((m) => m[1]);
+}
+
 // A grounded response is no longer JSON and nothing else: the model narrates before
 // it searches, and that narration lands in the same buffer. Take the first complete
 // brace-balanced span that parses. Everything from the first brace to the last one
@@ -947,6 +977,7 @@ async function analyze() {
   btn.disabled = true;
   resetProgressiveState();
   injectSkeletons();
+  scrollPastHero('loading');
 
   let buffer = '';
   let resultsShown = false;
@@ -986,7 +1017,7 @@ async function analyze() {
             document.getElementById('loading').classList.remove('visible');
             if (!resultsShown) {
               document.getElementById('results').classList.add('visible');
-              scrollToResults();
+              scrollPastHero('results');
               resultsShown = true;
               document.querySelector('.cta-hint').textContent = t('results.found') || 'We found evidence, examples, and hard questions';
             }
@@ -994,12 +1025,14 @@ async function analyze() {
           }
         }
       }
+      renderSearchProgress(buffer);
+
       // After each chunk, try to render any newly-complete sections
       if (payload_chunk_arrived(buffer)) {
         if (tryProgressiveRender(buffer, action, change) && !resultsShown) {
           document.getElementById('loading').classList.remove('visible');
           document.getElementById('results').classList.add('visible');
-          scrollToResults();
+          scrollPastHero('results');
           resultsShown = true;
           document.querySelector('.cta-hint').textContent = t('results.found') || 'We found evidence, examples, and hard questions';
         }
@@ -1035,9 +1068,12 @@ document.getElementById('error-banner-close').addEventListener('click', () => {
 // first. Otherwise (e.g., on cached responses that arrive before the 600ms
 // hero transition completes) we'd scroll to the pre-shrink position and land
 // well below the diagram.
-function scrollToResults() {
+// The wait now runs from a minute upwards, and what it shows is below the hero.
+// Bring it into view the moment the hero has finished shrinking, or the searches
+// scroll past unseen and the page looks like it did nothing.
+function scrollPastHero(targetId) {
   const hero = document.getElementById('hero');
-  const target = document.getElementById('results');
+  const target = document.getElementById(targetId);
   let fired = false;
   function go() {
     if (fired) return;
