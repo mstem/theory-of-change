@@ -216,14 +216,20 @@ function analysisCost(usage) {
 // beside the cache: a redeploy in the middle of a runaway day would otherwise hand
 // the next visitor a fresh budget.
 const DAILY_BUDGET_USD = Number(process.env.DAILY_BUDGET_USD || 25);
-let spend = { day: '', usd: 0 };
+// Citation lookups cost cents rather than dollars, fire several times on one page,
+// and need no account, so on a shared ceiling an afternoon of clicking could spend
+// the day the analyses needed. They get a slice instead, which leaves an analysis
+// with at least DAILY_BUDGET_USD minus this figure however busy the lookups get.
+const DAILY_LOOKUP_BUDGET_USD = Number(process.env.DAILY_LOOKUP_BUDGET_USD || 5);
+let spend = { day: '', usd: 0, lookupUsd: 0 };
 
 function utcDay(now) { return new Date(now).toISOString().slice(0, 10); }
 
-function recordSpend(usd, now = Date.now()) {
+function recordSpend(usd, now = Date.now(), purpose = 'analysis') {
   const day = utcDay(now);
-  if (spend.day !== day) spend = { day, usd: 0 };
+  if (spend.day !== day) spend = { day, usd: 0, lookupUsd: 0 };
   spend.usd += usd;
+  if (purpose === 'lookup') spend.lookupUsd += usd;
   saveSpendToDisk();
   return spend.usd;
 }
@@ -232,8 +238,13 @@ function spentToday(now = Date.now()) {
   return spend.day === utcDay(now) ? spend.usd : 0;
 }
 
-function budgetExhausted(now = Date.now()) {
-  return spentToday(now) >= DAILY_BUDGET_USD;
+function spentOnLookupsToday(now = Date.now()) {
+  return spend.day === utcDay(now) ? spend.lookupUsd : 0;
+}
+
+function budgetExhausted(now = Date.now(), purpose = 'analysis') {
+  if (spentToday(now) >= DAILY_BUDGET_USD) return true;
+  return purpose === 'lookup' && spentOnLookupsToday(now) >= DAILY_LOOKUP_BUDGET_USD;
 }
 
 const MAX_INPUT_LEN = 200;
@@ -265,7 +276,9 @@ const SPEND_FILE = join(CACHE_DIR, 'daily-spend.json');
 function loadSpendFromDisk() {
   try {
     const d = JSON.parse(readFileSync(SPEND_FILE, 'utf8'));
-    if (d && typeof d.day === 'string' && typeof d.usd === 'number') spend = { day: d.day, usd: d.usd };
+    if (d && typeof d.day === 'string' && typeof d.usd === 'number') {
+      spend = { day: d.day, usd: d.usd, lookupUsd: typeof d.lookupUsd === 'number' ? d.lookupUsd : 0 };
+    }
     if (spentToday() > 0) console.log(`Spent so far today: $${spentToday().toFixed(2)} of $${DAILY_BUDGET_USD}`);
   } catch (err) {
     if (err.code !== 'ENOENT') console.warn('Spend load failed:', err.message);
@@ -416,7 +429,14 @@ Then return ONLY valid JSON, with nothing after it:
       // code_execution must not also be declared here — two execution environments
       // confuse the model. Step 3 of docs/PRD-evidence-freshness.md tunes the cap.
       tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: ANALYZE_SEARCH_MAX_USES }],
-      messages: [{ role: 'user', content: prompt }]
+      // The bill here is not the searches, it is their results being read again on
+      // every pass of the server-side tool loop. Web search writes its own cache
+      // entry after each result block, but only once the request is caching at all,
+      // which is what this marker is for. The prompt is about 1,130 tokens against a
+      // 1,024-token minimum on this model, so it only just qualifies: if it is ever
+      // shortened, cache_write in the analyze log line goes to zero and the loop
+      // silently returns to full price.
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt, cache_control: { type: 'ephemeral' } }] }]
     });
 
     let full = '';
@@ -740,4 +760,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, spentToday, budgetExhausted, DAILY_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };

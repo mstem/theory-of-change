@@ -24,6 +24,7 @@ const {
   spentToday,
   budgetExhausted,
   DAILY_BUDGET_USD,
+  DAILY_LOOKUP_BUDGET_USD,
   isConclusiveLookup,
   cacheGet,
   cacheSet,
@@ -733,4 +734,33 @@ test('results are counted across every search in the turn', () => {
     ]
   };
   assert.equal(webSearchUsage(msg).results, 3);
+});
+
+// Citation lookups are cheap, unauthenticated and can fire several times on one
+// page. Sharing a single ceiling with analyses would let an afternoon of clicking
+// spend the day the analyses needed, so lookups get a slice rather than the run of it.
+
+test('lookups cannot take more of the day than their own slice', () => {
+  const day = Date.UTC(2026, 8, 20, 9);
+  recordSpend(DAILY_LOOKUP_BUDGET_USD, day, 'lookup');
+  assert.equal(budgetExhausted(day, 'lookup'), true);
+});
+
+test('an analysis is never turned away by what lookups spent', () => {
+  const day = Date.UTC(2026, 8, 21, 9);
+  recordSpend(DAILY_LOOKUP_BUDGET_USD, day, 'lookup');
+  assert.equal(budgetExhausted(day, 'analysis'), false);
+});
+
+test('what lookups spend still counts toward the day', () => {
+  const day = Date.UTC(2026, 8, 22, 9);
+  recordSpend(1, day, 'lookup');
+  recordSpend(2, day, 'analysis');
+  assert.equal(Number(spentToday(day).toFixed(4)), 3);
+});
+
+test('lookups stop when the whole day is spent, slice or no slice', () => {
+  const day = Date.UTC(2026, 8, 23, 9);
+  recordSpend(DAILY_BUDGET_USD, day, 'analysis');
+  assert.equal(budgetExhausted(day, 'lookup'), true);
 });
