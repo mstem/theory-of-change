@@ -20,6 +20,7 @@ const {
   isConclusiveLookup,
   lookupTtl,
   searchResultCount,
+  lookupCost,
   cacheGet,
   cacheSet,
   cache,
@@ -258,6 +259,29 @@ test('isConclusiveLookup rejects an answer no search result supports', () => {
       { type: 'text', text: '{"url":"https://bipartisanpolicy.org/"}' }
     ]
   }), false);
+});
+
+// ─── lookupCost ───────────────────────────────────────────────────────────────
+// Searches dominate: three of them cost more than the tokens of the whole call.
+// Haiku 4.5 is $1 per million in and $5 per million out; a search is $0.01.
+
+test('lookupCost charges searches and tokens together', () => {
+  const usd = lookupCost({ usage: {
+    input_tokens: 2000, output_tokens: 200,
+    server_tool_use: { web_search_requests: 3 }
+  } });
+  // 3 searches = $0.03, 2000 in = $0.002, 200 out = $0.001
+  assert.equal(Number(usd.toFixed(4)), 0.033);
+});
+
+test('lookupCost charges nothing for a reply that never searched', () => {
+  const usd = lookupCost({ usage: { input_tokens: 1000, output_tokens: 100 } });
+  assert.equal(Number(usd.toFixed(4)), 0.0015);
+});
+
+test('lookupCost treats a missing usage block as free rather than crashing', () => {
+  assert.equal(lookupCost(undefined), 0);
+  assert.equal(lookupCost({}), 0);
 });
 
 // ─── lookupTtl ────────────────────────────────────────────────────────────────

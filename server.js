@@ -500,6 +500,22 @@ function searchResultCount(content) {
     .reduce((total, b) => total + b.content.length, 0);
 }
 
+// Anthropic list prices for what one lookup actually consumes. The searches
+// dominate: three of them cost more than every token in the call put together,
+// which is why the ceiling on searches is the number that decides the bill.
+const SEARCH_USD = 0.01;            // $10 per 1,000 searches
+const HAIKU_INPUT_USD_PER_TOKEN = 1 / 1_000_000;
+const HAIKU_OUTPUT_USD_PER_TOKEN = 5 / 1_000_000;
+
+function lookupCost(msg) {
+  const usage = msg?.usage;
+  if (!usage) return 0;
+  const searches = usage.server_tool_use?.web_search_requests ?? 0;
+  return searches * SEARCH_USD
+    + (usage.input_tokens ?? 0) * HAIKU_INPUT_USD_PER_TOKEN
+    + (usage.output_tokens ?? 0) * HAIKU_OUTPUT_USD_PER_TOKEN;
+}
+
 function isConclusiveLookup(msg) {
   if (!msg || typeof msg !== 'object') return false;
   if (msg.stop_reason !== 'end_turn') return false;
@@ -577,6 +593,11 @@ Return ONLY valid JSON: {"url": "<https URL>"}
     // A URL the search results never produced came from the model's memory, and a
     // remembered URL is how this endpoint used to return publisher homepages and
     // invented paths. Drop it rather than pass a guess off as a found link.
+    const searches = msg.usage?.server_tool_use?.web_search_requests ?? 0;
+    const cost = lookupCost(msg);
+    console.log(`source-url: ${searches} search(es), $${cost.toFixed(4)}, stop_reason=${msg?.stop_reason}`);
+    for (const code of searchErrors(msg.content)) console.warn(`source-url search failed: ${code}`);
+
     const grounded = searchResultCount(msg.content) > 0;
     const url = grounded ? parseSourceUrl(textFromContent(msg.content)) : '';
     if (!grounded) console.warn('source-url: no search results behind the reply, answering empty');
@@ -662,4 +683,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupTtl, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
