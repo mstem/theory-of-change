@@ -1022,3 +1022,30 @@ test('lookups stop at their slice while the day as a whole still has room', () =
   assert.equal(budgetExhausted(DAY_THREE, 'lookup'), true);
   assert.equal(budgetExhausted(DAY_THREE, 'analysis'), false);
 });
+
+// Captured from live runs. The model does not reliably put each search on its own
+// line, and sometimes runs straight from the last one into a sentence, so a filter
+// that works line by line shows two searches merged and a sentence stuck to the end.
+
+test('two searches written without a line break between them are read as two', () => {
+  const buf = 'q:nonviolent resistance democratic transition Chenoweth Stephan success ratesq:nonviolent resistance declining success rate 2010s Chenoweth\n';
+  assert.deepEqual(searchQueries(buf), [
+    'nonviolent resistance democratic transition Chenoweth Stephan success rates',
+    'nonviolent resistance declining success rate 2010s Chenoweth'
+  ]);
+});
+
+test('a sentence running straight on from a search is cut off it', () => {
+  const buf = 'q:voter information campaigns meta-analysis Science Advances findingsI have enough evidence to build the analysis.\n';
+  assert.deepEqual(searchQueries(buf), ['voter information campaigns meta-analysis Science Advances findings']);
+});
+
+test('capitals inside a search survive the cut', () => {
+  assert.deepEqual(searchQueries('q:AI Democracy Projects chatbot election accuracy\n'),
+    ['AI Democracy Projects chatbot election accuracy']);
+});
+
+test('the prompt asks for one search per line and nothing else on it', () => {
+  const src = readFileSync(join(import.meta.dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /each on its own line/);
+});

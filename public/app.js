@@ -870,13 +870,26 @@ function extractSearchQueries(buf) {
   // the wait, which is most of it.
   const jsonAt = buf.search(/\{\s*"/);
   const preamble = jsonAt < 0 ? buf : buf.slice(0, jsonAt);
-  const lines = preamble.split('\n');
-  // Without the JSON to close it, the last line may still be arriving.
-  if (jsonAt < 0 && !preamble.endsWith('\n')) lines.pop();
-  return lines
-    .map((line) => line.match(/^q:\s*(.+?)\s*$/))
-    .filter(Boolean)
-    .map((m) => m[1]);
+
+  // Split on the notation rather than on line breaks. The model writes one search
+  // per line when it is going well and runs two together when it is not, and when
+  // a search fails it carries straight on into a sentence about rate limits with
+  // nothing between them. A line is not a reliable unit here; "q:" is.
+  const parts = preamble.split('q:').slice(1);
+
+  return parts
+    .map((part, i) => {
+      // The last one may still be arriving, unless the JSON has started behind it
+      // or another search follows.
+      const settled = part.includes('\n') || i < parts.length - 1 || jsonAt >= 0;
+      if (!settled) return '';
+      const line = part.split('\n')[0].trim();
+      // A capital with no space before it is a sentence starting where the search
+      // ended. Search terms keep their spaces, so "Science Advances" is safe.
+      const runOn = line.search(/[a-z0-9][A-Z]/);
+      return runOn < 0 ? line : line.slice(0, runOn + 1).trim();
+    })
+    .filter(Boolean);
 }
 
 // Strictness is the wrong test for which object is the analysis. A raw newline
