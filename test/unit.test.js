@@ -17,6 +17,8 @@ const {
   escapeHtml,
   parseSourceUrl,
   textFromContent,
+  webSearchUsage,
+  isCompleteAnalysis,
   isConclusiveLookup,
   cacheGet,
   cacheSet,
@@ -545,4 +547,100 @@ test('an empty evidence array reads as a complete value, so streaming does not s
 test('the prompt requires both evidence keys even when a column is empty', () => {
   const src = readFileSync(join(import.meta.dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /Always emit both keys, writing an empty column as \[\] rather than omitting the key/);
+});
+
+// ─── Grounding the analysis in search ─────────────────────────────────────────
+// A server tool that fails does not throw. The request comes back 200 and the
+// result block holds an error object where the list of results would be, so an
+// analysis can quietly fall back to the model's own knowledge with no signal.
+
+test('a failed web search is reported rather than read as a result', () => {
+  const msg = {
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'server_tool_use', name: 'web_search', input: { query: 'chatbot adoption 2026' } },
+      { type: 'web_search_tool_result', content: { type: 'web_search_tool_result_error', error_code: 'max_uses_exceeded' } },
+      { type: 'text', text: '{}' }
+    ]
+  };
+  assert.deepEqual(webSearchUsage(msg), { searches: 1, errors: ['max_uses_exceeded'] });
+});
+
+test('a web search that returned results counts as grounding, not as an error', () => {
+  const msg = {
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'server_tool_use', name: 'web_search', input: { query: 'chatbot adoption 2026' } },
+      { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://example.org/report' }] },
+      { type: 'text', text: '{}' }
+    ]
+  };
+  assert.deepEqual(webSearchUsage(msg), { searches: 1, errors: [] });
+});
+
+test('an analysis the model answered without searching reports no searches', () => {
+  assert.deepEqual(webSearchUsage({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{}' }] }),
+    { searches: 0, errors: [] });
+});
+
+test('a response with no content block array is not mistaken for a grounded one', () => {
+  assert.deepEqual(webSearchUsage(undefined), { searches: 0, errors: [] });
+  assert.deepEqual(webSearchUsage({ content: 'not blocks' }), { searches: 0, errors: [] });
+});
+
+// The 24-hour cache is what makes the search cost bearable, and it is also what
+// makes a bad analysis stick. A turn that paused at the server-side tool-loop
+// limit, or hit the token cap, carries truncated JSON — cache it and every visitor
+// for the next day gets the broken half.
+
+test('a turn that paused mid-search is not a complete analysis', () => {
+  assert.equal(isCompleteAnalysis({ stop_reason: 'pause_turn', content: [{ type: 'text', text: '{"strength"' }] }), false);
+});
+
+test('a turn cut off at the token cap is not a complete analysis', () => {
+  assert.equal(isCompleteAnalysis({ stop_reason: 'max_tokens', content: [{ type: 'text', text: '{"strength"' }] }), false);
+});
+
+test('a turn the model finished on its own is a complete analysis', () => {
+  assert.equal(isCompleteAnalysis({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{}' }] }), true);
+});
+
+test('a response that never arrived is not a complete analysis', () => {
+  assert.equal(isCompleteAnalysis(undefined), false);
+  assert.equal(isCompleteAnalysis({}), false);
+});
+
+// Search puts the model in a mood to explain itself. Anything it says before the
+// opening brace lands in the same buffer the progressive renderer reads, and the
+// renderer must still find the sections underneath it.
+test('text written before the JSON does not hide a finished section', () => {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const extract = new Function(
+    `${sliceFunction(appSrc, 'extractCompleteJsonValue')}\nreturn extractCompleteJsonValue;`)();
+
+  const buf = 'I looked up recent adoption figures first.\n{"strength": 62, "summary": "x", "evidence_for": []';
+  assert.equal(extract(buf, 'strength'), '62');
+  assert.equal(extract(buf, 'summary'), '"x"');
+  assert.equal(extract(buf, 'evidence_for'), '[]');
+});
+
+// The model narrates before it searches, so the final parse can no longer assume the
+// buffer is JSON and nothing else. Taking everything from the first brace to the last
+// one works only for as long as the narration happens to contain no braces.
+test('a brace in the search narration does not become the start of the analysis', () => {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const extract = new Function(
+    `${sliceFunction(appSrc, 'extractJsonObject')}\nreturn extractJsonObject;`)();
+
+  const buf = 'I will return {the analysis} once I have searched.\n{"strength": 62, "summary": "x"}';
+  assert.equal(extract(buf), '{"strength": 62, "summary": "x"}');
+});
+
+test('a response cut off before its closing brace still yields something to repair', () => {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const extract = new Function(
+    `${sliceFunction(appSrc, 'extractJsonObject')}\nreturn extractJsonObject;`)();
+
+  const buf = '{"strength": 62, "evidence_for": [{"title": "t"}], "summary": "cut off here';
+  assert.match(extract(buf), /^\{"strength": 62/);
 });

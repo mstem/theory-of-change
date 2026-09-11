@@ -837,6 +837,36 @@ function tryProgressiveRender(buffer, action, change) {
   return renderedAny;
 }
 
+// A grounded response is no longer JSON and nothing else: the model narrates before
+// it searches, and that narration lands in the same buffer. Take the first complete
+// brace-balanced span that parses. Everything from the first brace to the last one
+// survives only while the narration happens to contain no braces of its own.
+function extractJsonObject(buf) {
+  let firstComplete = null;
+  for (let start = buf.indexOf('{'); start >= 0; start = buf.indexOf('{', start + 1)) {
+    let depth = 0, inStr = false, closed = false;
+    for (let i = start; i < buf.length; i++) {
+      const c = buf[i];
+      if (c === '\\' && inStr) { i++; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === '{') depth++;
+      else if (c === '}' && --depth === 0) {
+        closed = true;
+        const span = buf.slice(start, i + 1);
+        if (firstComplete === null) firstComplete = span;
+        try { JSON.parse(span); return span; } catch (_) {}
+        break;
+      }
+    }
+    // This brace never closed, so it is a truncated answer and every brace after it
+    // is one of its own children. Returning a child would throw away the analysis
+    // around it; hand the truncated span to parseJSON, which repairs some of it.
+    if (!closed) return firstComplete || buf.slice(start);
+  }
+  return firstComplete;
+}
+
 // ─── Robust JSON parser ───────────────────────────────────────────────────────
 // Claude's output occasionally contains JSON-illegal raw control chars inside
 // string values (newlines, tabs, CR) — JSON forbids U+0000..U+001F unescaped
@@ -949,7 +979,7 @@ async function analyze() {
           if (payload.chunk) buffer += payload.chunk;
           if (payload.error) throw new Error(payload.error);
           if (payload.done) {
-            const jsonStr = buffer.match(/\{[\s\S]*\}/)?.[0];
+            const jsonStr = extractJsonObject(buffer);
             if (!jsonStr) throw new Error('No JSON in response');
             const data = parseJSON(jsonStr);
             renderResults(data, action, change); // final safety pass — idempotent

@@ -1,6 +1,6 @@
 # PRD: Grounded evidence
 
-- Status: sections 1 and 2 signed off 10 September 2026; step 1 built on branch `grounded-evidence`
+- Status: sections 1 and 2 signed off 10 September 2026; steps 1 and 2 built
 - Author: drafted 10 September 2026, revised same day
 - Owner: Matt Stempeck
 
@@ -119,6 +119,8 @@ Once claims come from sources, the judgment moves to which sources to trust and 
 
 1. **Reorder the prompt.** Rewrite `/api/analyze` to instruct source-first generation: find what is known, state each finding with its source and date, then assign the column. Add `as_of` to the evidence and historical-example objects and the source-weighting rubric to the prompt. Replace the fixed 3/3 quota with evidence-led counts. No search yet, no cost — the ordering change is worth testing on the model's own knowledge first, because it is the half of the fix that does not depend on search working.
 2. **Attach search.** Add `web_search_20260209` with `max_uses: 3` to the analyze call. Verify the streamed response still parses on the frontend with search blocks present, and that server-tool errors are caught rather than swallowed.
+
+   Built 11 September 2026. Measured on the AI-elections test case: three searches, no search errors, and four findings split two and two rather than three and three, all cited to 2024 and 2025 work the model could not have known. Two things came out of the run that step 3 and step 4 need. The model opens with a sentence about what it is going to search for, before the JSON, so the buffer is no longer JSON and nothing else; `extractJsonObject` in `public/app.js` now takes the first complete brace-balanced span rather than everything between the outer braces. And the whole call took 7 minutes 44 seconds, against the 5 to 15 seconds this document estimated. First token arrived in 2.4 seconds, but it was the narration, not content. One sample, worth repeating before drawing the cap from it.
 3. **Tune the cap and the rubric together** against the three test cases in the success criteria. `max_uses` and the rubric wording interact — a tight cap makes the model ration searches in ways that change which claims get grounded.
 4. **Loading state.** Cover the pre-token gap. This is now a several-second wait on a surface that previously responded instantly.
 5. **Tests.** Parser coverage for a response containing search blocks, the search-error path, and the cap. Fixtures for all three test cases as regressions, matching the existing 104-test suite.

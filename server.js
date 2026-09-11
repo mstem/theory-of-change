@@ -262,6 +262,10 @@ function cacheSet(key, text) {
   scheduleCacheSave();
 }
 
+// How many searches one analysis may run. Each costs about $0.02 and four to five
+// seconds of the wait before the first token.
+const ANALYZE_SEARCH_MAX_USES = 3;
+
 const analyzeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
@@ -301,6 +305,8 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
 
 Work from sources to claims, never the reverse. For the two evidence sections: first establish what research and documented cases actually found about this question, then state each finding, then place it in the column its content supports. Never pick a column, write a claim to fill it, and attach a citation afterwards.
 
+Search the web before you write anything, and let what comes back outrank what you remember — your training data is older than the question. Where search turns up nothing usable, answer from what you know and set as_of to the year of the evidence you are leaning on rather than to this year.
+
 Weighing sources against each other:
 - For a claim about a quantity that moves (adoption, usage, polling, prices, error rates), the most recent credible measurement wins outright.
 - For a claim about a mechanism or an effect, a landmark replicated finding is not displaced by a single recent survey, preprint, or single-country study.
@@ -314,7 +320,7 @@ Be specific — cite real movements, researchers, and cases. Be concise: 1-2 sen
 
 Score 70–100 as Strong if there is robust peer-reviewed evidence across multiple contexts; 40–69 as Moderate if evidence exists but is mixed or context-dependent; 10–39 as Weak if evidence is thin or contested; 0–9 as Speculative if there is little to no empirical basis.
 
-Return ONLY valid JSON:
+Return ONLY valid JSON, with nothing before or after it. Do not describe your searches:
 {
   "strength": <integer 0-100>,
   "strength_label": "<Strong | Moderate | Weak | Speculative>",
@@ -331,6 +337,10 @@ Return ONLY valid JSON:
     const stream = client.messages.stream({
       model: process.env.CLAUDE_MODEL || 'claude-opus-4-8',
       max_tokens: 4096,
+      // The current search variant runs code execution under the hood, which is why
+      // code_execution must not also be declared here — two execution environments
+      // confuse the model. Step 3 of docs/PRD-evidence-freshness.md tunes the cap.
+      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: ANALYZE_SEARCH_MAX_USES }],
       messages: [{ role: 'user', content: prompt }]
     });
 
@@ -340,8 +350,12 @@ Return ONLY valid JSON:
       res.write(`data: ${JSON.stringify({ chunk: text })}\n\n`);
     });
 
-    stream.on('finalMessage', () => {
-      cacheSet(cacheKey, full);
+    stream.on('finalMessage', (msg) => {
+      const { searches, errors } = webSearchUsage(msg);
+      for (const code of errors) console.warn(`analyze web search failed: ${code}`);
+      console.log(`analyze: ${searches} search(es), ${errors.length} search error(s), stop_reason=${msg?.stop_reason}`);
+      if (isCompleteAnalysis(msg)) cacheSet(cacheKey, full);
+      else console.warn(`analyze not cached: turn ended on ${msg?.stop_reason}`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
     });
@@ -457,6 +471,26 @@ function textFromContent(content) {
     .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
     .map((b) => b.text)
     .join('\n');
+}
+
+// Server tools do not raise. A web search that fails comes back inside a 200
+// response, with an error object sitting where the list of results belongs, so the
+// only signal that an analysis fell back on training data is in the content blocks.
+function webSearchUsage(msg) {
+  const blocks = Array.isArray(msg?.content) ? msg.content : [];
+  const searches = blocks.filter((b) => b && b.type === 'server_tool_use' && b.name === 'web_search').length;
+  const errors = blocks
+    .filter((b) => b && b.type === 'web_search_tool_result' && b.content && !Array.isArray(b.content))
+    .map((b) => b.content.error_code || 'unknown_error');
+  return { searches, errors };
+}
+
+// Only a turn the model ended itself holds the whole analysis. The server-side tool
+// loop stops at ten iterations with pause_turn, and a grounded answer runs longer
+// than an ungrounded one, so the token cap is closer than it was. Either way the
+// JSON is cut off, and the 24-hour cache would hand that to everyone who follows.
+function isCompleteAnalysis(msg) {
+  return msg?.stop_reason === 'end_turn';
 }
 
 // An empty URL is a fine thing to remember for a week when the model looked and
@@ -609,4 +643,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, webSearchUsage, isCompleteAnalysis, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
