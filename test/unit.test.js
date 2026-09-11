@@ -28,6 +28,9 @@ const {
   DAILY_BUDGET_USD,
   DAILY_LOOKUP_BUDGET_USD,
   isConclusiveLookup,
+  lookupTtl,
+  searchResultCount,
+  lookupCost,
   cacheGet,
   cacheSet,
   cache,
@@ -163,7 +166,10 @@ test('textFromContent returns an empty string when the reply carries no text blo
 test('isConclusiveLookup accepts a reply that ended with an answer', () => {
   assert.equal(isConclusiveLookup({
     stop_reason: 'end_turn',
-    content: [{ type: 'text', text: '{"url":""}' }]
+    content: [
+      { type: 'web_search_tool_result', tool_use_id: 'a', content: [{ type: 'web_search_result', url: 'https://example.org/' }] },
+      { type: 'text', text: '{"url":""}' }
+    ]
   }), true);
 });
 
@@ -186,6 +192,119 @@ test('isConclusiveLookup rejects a finished turn that produced no text at all', 
     stop_reason: 'end_turn',
     content: [{ type: 'web_search_tool_result', tool_use_id: 'x', content: [] }]
   }), false);
+});
+
+// A search that failed is not a search that came back empty. Both end the turn
+// with a well-formed {"url":""}, so the error block is the only thing that tells
+// them apart, and caching the first as an answer strands the citation.
+
+test('isConclusiveLookup rejects a reply whose search hit the use limit', () => {
+  assert.equal(isConclusiveLookup({
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'web_search_tool_result', tool_use_id: 'a', content: [{ type: 'web_search_result', url: 'https://example.org/' }] },
+      { type: 'web_search_tool_result', tool_use_id: 'b', content: { type: 'web_search_tool_result_error', error_code: 'max_uses_exceeded' } },
+      { type: 'text', text: '{"url":""}' }
+    ]
+  }), false);
+});
+
+test('isConclusiveLookup rejects a reply whose search was rate limited', () => {
+  assert.equal(isConclusiveLookup({
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'web_search_tool_result', tool_use_id: 'a', content: { type: 'web_search_tool_result_error', error_code: 'too_many_requests' } },
+      { type: 'text', text: '{"url":""}' }
+    ]
+  }), false);
+});
+
+// This one asserted the opposite until a run on the sibling endpoint showed the
+// model announcing that search had stopped working and then answering from
+// memory, with every result block an empty list and no error anywhere. A search
+// that genuinely matched nothing and a search that silently did nothing are the
+// same bytes, so neither is cached. Empties expire in an hour, so the cost of
+// re-asking is one lookup; the cost of believing a broken search is a citation
+// that stays dead.
+test('isConclusiveLookup declines to cache a run where no search returned anything', () => {
+  assert.equal(isConclusiveLookup({
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'web_search_tool_result', tool_use_id: 'a', content: [] },
+      { type: 'text', text: '{"url":""}' }
+    ]
+  }), false);
+});
+
+// ─── searchResultCount ────────────────────────────────────────────────────────
+// A search can come back as an empty list rather than an error, which reads as
+// success to anything checking only for an error block. When every search
+// returns nothing, whatever URL the model then writes came out of training data,
+// which is the bug this endpoint exists to fix.
+
+test('searchResultCount adds up the hits across every search', () => {
+  assert.equal(searchResultCount([
+    { type: 'web_search_tool_result', tool_use_id: 'a', content: [{ type: 'web_search_result' }, { type: 'web_search_result' }] },
+    { type: 'web_search_tool_result', tool_use_id: 'b', content: [{ type: 'web_search_result' }] },
+    { type: 'text', text: '{"url":"https://example.org/"}' }
+  ]), 3);
+});
+
+test('searchResultCount counts a silent empty search as no evidence', () => {
+  assert.equal(searchResultCount([
+    { type: 'web_search_tool_result', tool_use_id: 'a', content: [] },
+    { type: 'web_search_tool_result', tool_use_id: 'b', content: [] }
+  ]), 0);
+});
+
+test('searchResultCount counts a reply that never searched as no evidence', () => {
+  assert.equal(searchResultCount([{ type: 'text', text: '{"url":"https://example.org/"}' }]), 0);
+});
+
+test('isConclusiveLookup rejects an answer no search result supports', () => {
+  assert.equal(isConclusiveLookup({
+    stop_reason: 'end_turn',
+    content: [
+      { type: 'web_search_tool_result', tool_use_id: 'a', content: [] },
+      { type: 'text', text: '{"url":"https://bipartisanpolicy.org/"}' }
+    ]
+  }), false);
+});
+
+// ─── lookupCost ───────────────────────────────────────────────────────────────
+// Searches dominate: three of them cost more than the tokens of the whole call.
+// Haiku 4.5 is $1 per million in and $5 per million out; a search is $0.01.
+
+test('lookupCost charges searches and tokens together', () => {
+  const usd = lookupCost({ usage: {
+    input_tokens: 2000, output_tokens: 200,
+    server_tool_use: { web_search_requests: 3 }
+  } });
+  // 3 searches = $0.03, 2000 in = $0.002, 200 out = $0.001
+  assert.equal(Number(usd.toFixed(4)), 0.033);
+});
+
+test('lookupCost charges nothing for a reply that never searched', () => {
+  const usd = lookupCost({ usage: { input_tokens: 1000, output_tokens: 100 } });
+  assert.equal(Number(usd.toFixed(4)), 0.0015);
+});
+
+test('lookupCost treats a missing usage block as free rather than crashing', () => {
+  assert.equal(lookupCost(undefined), 0);
+  assert.equal(lookupCost({}), 0);
+});
+
+// ─── lookupTtl ────────────────────────────────────────────────────────────────
+// A found link is a fact about the web and keeps. "I did not find it" is a fact
+// about one search, and pinning that for a week strands a citation that the next
+// attempt would have resolved.
+
+test('lookupTtl keeps a found link for the full week', () => {
+  assert.equal(lookupTtl('https://example.org/report/'), 7 * 24 * 60 * 60 * 1000);
+});
+
+test('lookupTtl lets an empty result expire within the hour', () => {
+  assert.equal(lookupTtl(''), 60 * 60 * 1000);
 });
 
 test('isConclusiveLookup rejects a malformed message rather than trusting it', () => {
