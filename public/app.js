@@ -601,6 +601,15 @@ document.addEventListener('click', async (e) => {
       body: JSON.stringify({ source, context }),
     });
     const data = await res.json().catch(() => ({}));
+
+    // A refused lookup is not a missing source. Saying "no source found" here
+    // would report on a search nobody ran.
+    if (res.status === 503) {
+      btn.textContent = t('source.lookupPaused') || 'link lookups resume tomorrow';
+      btn.classList.add('source-lookup-empty');
+      return;
+    }
+
     const url = typeof data.url === 'string' && /^https?:\/\//i.test(data.url) ? data.url : '';
 
     const wrap = btn.parentElement;

@@ -248,16 +248,20 @@ function spentOnLookupsToday(now = Date.now()) {
 // day is charged an estimate up front and corrected once the real figure arrives.
 const ANALYSIS_ESTIMATE_USD = 0.3;
 
-function reserveSpend(now = Date.now()) {
-  recordSpend(ANALYSIS_ESTIMATE_USD, now);
-  return { usd: ANALYSIS_ESTIMATE_USD, day: utcDay(now) };
+// Takes a purpose and an estimate so lookups can reserve against their slice the
+// same way analyses reserve against the day. Called with no arguments it behaves
+// exactly as before, which is how the analyze path still calls it.
+function reserveSpend(now = Date.now(), purpose = 'analysis', estimateUsd = ANALYSIS_ESTIMATE_USD) {
+  recordSpend(estimateUsd, now, purpose);
+  return { usd: estimateUsd, day: utcDay(now), purpose };
 }
 
 // A run that never reports back keeps its estimate. It had already paid for its
 // searches and its tokens by then, so forgetting it would understate the day.
 function settleSpend(reservation, actualUsd, now = Date.now()) {
-  if (!reservation || reservation.day !== utcDay(now)) return recordSpend(actualUsd, now);
-  return recordSpend(actualUsd - reservation.usd, now);
+  const purpose = reservation?.purpose ?? 'analysis';
+  if (!reservation || reservation.day !== utcDay(now)) return recordSpend(actualUsd, now, purpose);
+  return recordSpend(actualUsd - reservation.usd, now, purpose);
 }
 
 function budgetExhausted(now = Date.now(), purpose = 'analysis') {
@@ -592,6 +596,10 @@ const SOURCE_URL_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // while a retry is cheap and soon. Lower the ceiling or lengthen this, and
 // citations a second attempt would have found go dead instead.
 const SOURCE_URL_EMPTY_TTL_MS = 60 * 60 * 1000;
+// Four searches and the results they drag into context, which is what a lookup
+// costs when it uses the whole ceiling. Reserved up front and settled down to
+// the real figure once the call returns.
+const LOOKUP_ESTIMATE_USD = 0.09;
 
 function lookupTtl(url) {
   return url ? SOURCE_URL_CACHE_TTL_MS : SOURCE_URL_EMPTY_TTL_MS;
@@ -721,16 +729,24 @@ app.post('/api/source-url', sourceUrlLimiter, async (req, res) => {
   }
   const ctx = typeof context === 'string' ? context.slice(0, MAX_CONTEXT_LEN) : '';
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return res.status(500).json({ error: 'ANTHROPIC_API_KEY is not set' });
-  }
-
   const key = `${source.toLowerCase().trim()}|||${ctx.toLowerCase().trim()}`;
   const cached = sourceUrlCache.get(key);
   if (cached && Date.now() - cached.t <= lookupTtl(cached.url)) {
     sourceUrlCache.delete(key);
     sourceUrlCache.set(key, cached);
     return res.json({ url: cached.url });
+  }
+
+  // Both of these sit after the cache read on purpose: a citation already
+  // resolved today keeps working whether or not the slice is spent, and whether
+  // or not the key is configured. Only a lookup that would call out stops here.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(500).json({ error: 'ANTHROPIC_API_KEY is not set' });
+  }
+
+  if (budgetExhausted(Date.now(), 'lookup')) {
+    console.warn(`source-url refused: $${spentOnLookupsToday().toFixed(2)} spent on lookups today against a $${DAILY_LOOKUP_BUDGET_USD} slice`);
+    return res.status(503).json({ error: "Link lookups have reached today's limit. They resume tomorrow." });
   }
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -748,6 +764,11 @@ Return ONLY valid JSON: {"url": "<https URL>"}
 - For an organization cited without a named document: the page covering the work described
   in the context above, and only if you found one.
 - If the search did not turn up the document itself, return "".`;
+
+  // The estimate is the worst case, four searches and their results. A burst of
+  // lookups all clears the check above before any of them has finished, so the
+  // estimate goes on the meter now and the difference comes back below.
+  const reservation = reserveSpend(Date.now(), 'lookup', LOOKUP_ESTIMATE_USD);
 
   try {
     const msg = await client.messages.create({
@@ -770,7 +791,14 @@ Return ONLY valid JSON: {"url": "<https URL>"}
     // invented paths. Drop it rather than pass a guess off as a found link.
     const searches = msg.usage?.server_tool_use?.web_search_requests ?? 0;
     const cost = lookupCost(msg);
-    console.log(`source-url: ${searches} search(es), $${cost.toFixed(4)}, stop_reason=${msg?.stop_reason}`);
+    settleSpend(reservation, cost);
+    console.log([
+      `source-url: ${searches} search(es)`,
+      `$${cost.toFixed(4)}`,
+      `stop_reason=${msg?.stop_reason}`,
+      `lookups_today=$${spentOnLookupsToday().toFixed(2)}/${DAILY_LOOKUP_BUDGET_USD}`,
+      `spent_today=$${spentToday().toFixed(2)}/${DAILY_BUDGET_USD}`
+    ].join(', '));
     for (const code of searchErrors(msg.content)) console.warn(`source-url search failed: ${code}`);
 
     const grounded = searchResultCount(msg.content) > 0;
@@ -786,6 +814,12 @@ Return ONLY valid JSON: {"url": "<https URL>"}
     }
     return res.json({ url });
   } catch (err) {
+    // The reservation stands, which is what settleSpend's own comment asks for
+    // and what the analyze path does. A lookup that throws has usually already
+    // run and paid for its searches: upstream rate limiting makes the model wait
+    // and retry, so the failures that reach here are the expensive ones, not the
+    // free ones. Refunding them would understate the day in exactly the case the
+    // meter exists for.
     console.warn('source-url lookup failed:', err.message || err);
     return res.status(502).json({ error: 'Lookup failed' });
   }
