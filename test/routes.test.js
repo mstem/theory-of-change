@@ -46,7 +46,7 @@ delete process.env.RESEND_API_KEY;
 delete process.env.CURATOR_API_URL;
 delete process.env.FEEDBACK_TO;
 
-const { app, inlineScriptHashes, cacheSet, recordSpend, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD } = await import('../server.js');
+const { app, inlineScriptHashes, cacheSet, serializeStreams, recordSpend, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD } = await import('../server.js');
 
 const server = app.listen(0);
 await once(server, 'listening');
@@ -138,7 +138,7 @@ test('lookups stop at their own slice while analyses carry on', async () => {
 
   process.env.ANTHROPIC_API_KEY = 'never-used-no-request-is-made';
   const refused = await post('/api/source-url', { source: 'Elinor Ostrom', context: 'commons' });
-  cacheSet('slice check|||still answers', '{"strength": 61}');
+  cacheSet('slice check|||still answers', serializeStreams({ frame: '{"strength": 61}', grounded: '{"evidence_for": []}' }));
   const analysis = await post('/api/analyze', { action: 'Slice Check', change: 'Still Answers' });
   const body = await analysis.text();
   delete process.env.ANTHROPIC_API_KEY;
@@ -147,18 +147,58 @@ test('lookups stop at their own slice while analyses carry on', async () => {
   assert.match(body, /"strength\\": 61/);
 });
 
+
+// Each chunk says which call wrote it, because the page keeps one buffer per call
+// and a chunk with no tag would be appended to whichever buffer happened to be
+// first — quietly corrupting the JSON of both.
+test('a cached analysis replays both streams, each tagged with the call it came from', async () => {
+  process.env.ANTHROPIC_API_KEY = 'never-used-no-request-is-made';
+  cacheSet('tagged replay|||two streams', serializeStreams({
+    frame: '{"strength": 44, "summary": "x"}',
+    grounded: '{"strength": 71, "evidence_for": []}'
+  }));
+  const res = await post('/api/analyze', { action: 'Tagged Replay', change: 'Two Streams' });
+  const body = await res.text();
+  delete process.env.ANTHROPIC_API_KEY;
+
+  const tagged = body.split('\n').filter((line) => line.startsWith('data: ')).map((line) => JSON.parse(line.slice(6)));
+  const frame = tagged.find((payload) => payload.s === 'frame');
+  const grounded = tagged.find((payload) => payload.s === 'grounded');
+
+  assert.ok(frame, 'no chunk was tagged as the frame call');
+  assert.ok(grounded, 'no chunk was tagged as the grounded call');
+  assert.match(frame.chunk, /"strength": 44/);
+  assert.match(grounded.chunk, /"strength": 71/);
+  assert.ok(tagged.some((payload) => payload.done === true), 'the stream never closed');
+});
+
 // These two run last in this section: spending the day is global state, and every
 // analyze test after them would be turned away by the budget rather than by what
 // it meant to check.
 
 test('an analysis already in the cache still answers after the day is spent', async () => {
   process.env.ANTHROPIC_API_KEY = 'never-used-no-request-is-made';
-  cacheSet('mutual aid|||less isolation', '{"strength": 50}');
+  cacheSet('mutual aid|||less isolation', serializeStreams({ frame: '{"strength": 50}', grounded: '{"evidence_for": []}' }));
   recordSpend(DAILY_BUDGET_USD);
   const res = await post('/api/analyze', { action: 'Mutual Aid', change: 'Less Isolation' });
   const body = await res.text();
   delete process.env.ANTHROPIC_API_KEY;
   assert.match(body, /"strength\\": 50/);
+});
+
+
+// An entry written before the analysis was split into two calls holds one
+// undivided blob. Replayed as a frame it would leave the evidence columns on
+// skeletons with nothing ever arriving to fill them, so it reads as a miss.
+test('an analysis cached before the split is not replayed', async () => {
+  process.env.ANTHROPIC_API_KEY = 'never-used-no-request-is-made';
+  cacheSet('legacy shape|||one blob', '{"strength": 50, "evidence_for": []}');
+  recordSpend(DAILY_BUDGET_USD);
+  const res = await post('/api/analyze', { action: 'Legacy Shape', change: 'One Blob' });
+  const body = await res.text();
+  delete process.env.ANTHROPIC_API_KEY;
+  assert.doesNotMatch(body, /"strength": 50/, 'the pre-split entry was replayed');
+  assert.match(body, /limit on new analyses/);
 });
 
 test('a new theory is turned away once the day is spent, rather than billed', async () => {

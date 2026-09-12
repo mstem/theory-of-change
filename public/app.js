@@ -536,7 +536,53 @@ function renderDiagramSection(data, action, change) {
       <span style="color:${color}">${escapeHtml(strengthLabelText(data.strength_label))}</span>
     </div>
     <div class="diagram-summary">${summaryHtml}</div>
+    <div class="score-note" id="score-note"></div>
   `;
+  renderScoreNote();
+}
+
+// The score on screen is an estimate until the grounded call reports, and the
+// page says so while that is true. This is not decoration: it reads the state of
+// a stream that is genuinely still open, and it stops the moment it closes.
+function renderScoreNote() {
+  const el = document.getElementById('score-note');
+  if (!el) return;
+
+  if (_scoreState.unchecked) {
+    el.className = 'score-note';
+    el.textContent = t('score.unchecked') || 'Sources could not be checked, so this score is a first read.';
+    return;
+  }
+  if (!_scoreState.settled) {
+    el.className = 'score-note checking';
+    el.textContent = t('score.checking') || 'Checking this against sources';
+    return;
+  }
+  if (_scoreState.before) {
+    const reading = (d) => `${d.strength} ${strengthLabelText(d.strength_label)}`;
+    el.className = 'score-note';
+    el.textContent = t('score.moved', { before: reading(_scoreState.before), after: reading(_partialData) })
+      || `First read: ${reading(_scoreState.before)}. After checking sources: ${reading(_partialData)}.`;
+    return;
+  }
+  el.className = 'score-note';
+  el.textContent = '';
+}
+
+// Whether a reader would notice the difference between the first estimate and the
+// sourced score. A three-point drift within the same band is noise, and narrating
+// it would teach readers to distrust a number that did not really change.
+function scoreMoved(before, after) {
+  if (typeof before.strength !== 'number' || typeof after.strength !== 'number') return false;
+  if (before.strength_label !== after.strength_label) return true;
+  return Math.abs(after.strength - before.strength) >= 10;
+}
+
+// The grounded call wins every key it wrote, and writes none of the frame's own.
+// A call that died wrote nothing, and merging its absence must not blank a
+// section that is already finished and on the screen.
+function mergeAnalysis(frameData, groundedData) {
+  return { ...(frameData || {}), ...(groundedData || {}) };
 }
 
 function renderMechanismsSection(mechanisms) {
@@ -706,30 +752,50 @@ function renderAssumptionsSection(assumptions) {
   });
 }
 
-function renderResults(data, action, change) {
-  renderDiagramSection(data, action, change);
+// Split along the same seam as the two calls, so the final safety pass can redraw
+// what one call returned without also redrawing the other call's sections from
+// keys it never wrote. Rendering an absent evidence_for as an empty column would
+// tell the reader the search found nothing, which is not the same as not searching.
+function renderFrameSections(data, action, change) {
   renderMechanismsSection(data.mechanisms);
-  renderEvidenceColumn('evidence-for', data.evidence_for);
-  renderEvidenceColumn('evidence-against', data.evidence_against);
-  renderHistorySection(data.historical_examples);
   renderQuestionsSection(data.probing_questions, action, change);
   renderAssumptionsSection(data.assumptions);
 }
 
+function renderGroundedSections(data) {
+  renderEvidenceColumn('evidence-for', data.evidence_for);
+  renderEvidenceColumn('evidence-against', data.evidence_against);
+  renderHistorySection(data.historical_examples);
+}
+
 // ─── Progressive render (streams sections as Claude emits them) ───────────────
-const SECTIONS_IN_ORDER = [
+// The analysis arrives as two streams. The frame call writes what the page can
+// show straight away; the grounded call searches first and writes what depends on
+// what came back. Each list must match the JSON its prompt asks for in server.js,
+// or a section goes unrendered with nothing anywhere reporting it.
+const FRAME_SECTIONS = [
   'strength', 'strength_label', 'summary',
-  'assumptions', 'mechanisms', 'evidence_for', 'evidence_against',
-  'historical_examples', 'probing_questions'
+  'assumptions', 'mechanisms', 'probing_questions'
 ];
+const GROUNDED_SECTIONS = [
+  'strength', 'strength_label',
+  'evidence_for', 'evidence_against', 'historical_examples'
+];
+
 let _renderedSections = new Set();
 let _partialData = {};
+// Held back until both halves of the score have arrived: applying the number
+// without its label would put a Weak score behind a Moderate badge for a moment.
+let _groundedScore = {};
+let _scoreState = { settled: false, unchecked: false, before: null };
 
 let _shownQueries = -1;
 
 function resetProgressiveState() {
   _renderedSections = new Set();
   _partialData = {};
+  _groundedScore = {};
+  _scoreState = { settled: false, unchecked: false, before: null };
   _shownQueries = -1;
   const queries = document.getElementById('loading-queries');
   if (queries) queries.innerHTML = '';
@@ -811,53 +877,103 @@ function extractCompleteJsonValue(buf, key) {
   }
 }
 
-function tryProgressiveRender(buffer, action, change) {
+function tryProgressiveRender(buffer, action, change, stream) {
   const cleanBuf = buffer
     .replace(/^```(?:json)?\s*/, '')
     .replace(/```\s*$/, '');
 
+  const sections = stream === 'grounded' ? GROUNDED_SECTIONS : FRAME_SECTIONS;
   let renderedAny = false;
-  for (let i = 0; i < SECTIONS_IN_ORDER.length; i++) {
-    const key = SECTIONS_IN_ORDER[i];
-    if (_renderedSections.has(key)) continue;
+
+  for (const key of sections) {
+    // Both calls write a score, so the mark carries the stream: without it the
+    // grounded score would be skipped as a key already rendered.
+    const mark = `${stream}:${key}`;
+    if (_renderedSections.has(mark)) continue;
     const rawValue = extractCompleteJsonValue(cleanBuf, key);
     if (!rawValue) break;
     let sectionData;
     try { sectionData = JSON.parse(rawValue); } catch { break; }
 
-    _partialData[key] = sectionData;
-    _renderedSections.add(key);
-
-    // Render the section now that it's complete.
-    // Diagram needs strength + strength_label + summary together; render once when summary lands.
-    if (key === 'strength' || key === 'strength_label') {
-      // Wait for summary
-    } else if (key === 'summary') {
-      if ('strength' in _partialData && 'strength_label' in _partialData) {
-        renderDiagramSection(_partialData, action, change);
-        renderedAny = true;
-      }
-    } else if (key === 'mechanisms') {
-      renderMechanismsSection(_partialData.mechanisms);
-      renderedAny = true;
-    } else if (key === 'evidence_for') {
-      renderEvidenceColumn('evidence-for', _partialData.evidence_for);
-      renderedAny = true;
-    } else if (key === 'evidence_against') {
-      renderEvidenceColumn('evidence-against', _partialData.evidence_against);
-      renderedAny = true;
-    } else if (key === 'historical_examples') {
-      renderHistorySection(_partialData.historical_examples);
-      renderedAny = true;
-    } else if (key === 'probing_questions') {
-      renderQuestionsSection(_partialData.probing_questions, action, change);
-      renderedAny = true;
-    } else if (key === 'assumptions') {
-      renderAssumptionsSection(_partialData.assumptions);
-      renderedAny = true;
-    }
+    _renderedSections.add(mark);
+    if (renderStreamedSection(key, sectionData, stream, action, change)) renderedAny = true;
   }
   return renderedAny;
+}
+
+function renderStreamedSection(key, value, stream, action, change) {
+  if (key === 'strength' || key === 'strength_label') {
+    if (stream === 'grounded') {
+      _groundedScore[key] = value;
+      if (!('strength' in _groundedScore) || !('strength_label' in _groundedScore)) return false;
+      return settleScore(action, change);
+    }
+    // The diagram needs the summary as well, and it is the next key along.
+    _partialData[key] = value;
+    return false;
+  }
+
+  _partialData[key] = value;
+
+  if (key === 'summary') {
+    if (!('strength' in _partialData) || !('strength_label' in _partialData)) return false;
+    renderDiagramSection(_partialData, action, change);
+    return true;
+  }
+  if (key === 'mechanisms') { renderMechanismsSection(_partialData.mechanisms); return true; }
+  if (key === 'assumptions') { renderAssumptionsSection(_partialData.assumptions); return true; }
+  if (key === 'probing_questions') { renderQuestionsSection(_partialData.probing_questions, action, change); return true; }
+  if (key === 'evidence_for') { renderEvidenceColumn('evidence-for', _partialData.evidence_for); return true; }
+  if (key === 'evidence_against') { renderEvidenceColumn('evidence-against', _partialData.evidence_against); return true; }
+  if (key === 'historical_examples') { renderHistorySection(_partialData.historical_examples); return true; }
+  return false;
+}
+
+// The sourced score replacing the estimate. The diagram is redrawn rather than
+// patched, because the arrow's weight, opacity and dash pattern all read off the
+// score and a half-updated diagram would say two different things at once.
+function settleScore(action, change) {
+  const before = { strength: _partialData.strength, strength_label: _partialData.strength_label };
+  Object.assign(_partialData, _groundedScore);
+  _scoreState.settled = true;
+  _scoreState.before = scoreMoved(before, _partialData) ? before : null;
+  // Nothing to redraw yet if the frame call has not written the summary. The
+  // diagram renders once it does, and reads the settled score then.
+  if (!('summary' in _partialData)) return false;
+  renderDiagramSection(_partialData, action, change);
+  return true;
+}
+
+// One call failing takes down its own sections and leaves the other call's work
+// standing. A page that already shows a finished diagram must not be replaced by
+// an error banner, and sections that are never coming must not sit on skeletons.
+function markStreamFailed(stream, action, change) {
+  const message = t('section.failed') || 'This section could not be loaded.';
+  const note = `<p class="section-failed">${escapeHtml(message)}</p>`;
+
+  if (stream === 'grounded') {
+    _scoreState.settled = true;
+    _scoreState.unchecked = true;
+    for (const id of ['evidence-for', 'evidence-against', 'history-list']) {
+      document.getElementById(id).innerHTML = note;
+    }
+    renderScoreNote();
+    return;
+  }
+
+  for (const [id, key] of [['mechanisms-list', 'mechanisms'], ['assumptions-list', 'assumptions'], ['questions-list', 'probing_questions']]) {
+    if (!(key in _partialData)) document.getElementById(id).innerHTML = note;
+  }
+  // The grounded call writes a score too, so the diagram can still be drawn. It
+  // just has no summary under it.
+  if (!('summary' in _partialData)) {
+    _partialData.summary = '';
+    if ('strength' in _partialData && 'strength_label' in _partialData) {
+      renderDiagramSection(_partialData, action, change);
+    } else {
+      document.getElementById('diagram').innerHTML = note;
+    }
+  }
 }
 
 // The model writes one q:<keywords> line per search before the JSON starts, which
@@ -1030,8 +1146,18 @@ async function analyze() {
   injectSkeletons();
   scrollPastHero('loading');
 
-  let buffer = '';
+  const buffers = { frame: '', grounded: '' };
+  const failed = { frame: false, grounded: false };
   let resultsShown = false;
+
+  function reveal() {
+    document.getElementById('loading').classList.remove('visible');
+    if (resultsShown) return;
+    document.getElementById('results').classList.add('visible');
+    scrollPastHero('results');
+    resultsShown = true;
+    document.querySelector('.cta-hint').textContent = t('results.found') || 'We found evidence, examples, and hard questions';
+  }
 
   try {
     const res = await fetch('/api/analyze', {
@@ -1058,41 +1184,63 @@ async function analyze() {
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const payload = JSON.parse(line.slice(6));
-          if (payload.chunk) buffer += payload.chunk;
+          const stream = payload.s === 'grounded' ? 'grounded' : 'frame';
+
+          if (payload.chunk) buffers[stream] += payload.chunk;
+
           if (payload.error) {
+            // An error with no call named is the whole request refused: no budget,
+            // no key, nothing started. One that names a call takes down that call's
+            // sections and leaves the other's standing.
+            if (payload.s && !(failed.frame && failed.grounded)) {
+              failed[stream] = true;
+              markStreamFailed(stream, action, change);
+              if (resultsShown || failed.frame !== failed.grounded) continue;
+            }
             // Written by the server for this reader, so it survives the catch below
             // rather than being replaced by a suggestion to try again.
             const err = new Error(payload.error);
             err.fromServer = true;
             throw err;
           }
+
           if (payload.done) {
-            const jsonStr = extractJsonObject(buffer);
-            if (!jsonStr) throw new Error('No JSON in response');
-            const data = parseJSON(jsonStr);
-            renderResults(data, action, change); // final safety pass — idempotent
-            document.getElementById('loading').classList.remove('visible');
-            if (!resultsShown) {
-              document.getElementById('results').classList.add('visible');
-              scrollPastHero('results');
-              resultsShown = true;
-              document.querySelector('.cta-hint').textContent = t('results.found') || 'We found evidence, examples, and hard questions';
+            const frameData = failed.frame ? null : parseStreamBuffer(buffers.frame);
+            const groundedData = failed.grounded ? null : parseStreamBuffer(buffers.grounded);
+            if (!frameData && !groundedData) throw new Error('No JSON in response');
+
+            // A call can close cleanly having written nothing usable. The server
+            // reports no error for that, so the sections it owns would sit on
+            // skeletons for good unless the page says so itself.
+            if (!frameData && !failed.frame) markStreamFailed('frame', action, change);
+            if (!groundedData && !failed.grounded) markStreamFailed('grounded', action, change);
+
+            // The grounded call can finish without its score ever parsing, and the
+            // page would otherwise say it was still checking for the rest of the day.
+            if (!_scoreState.settled) {
+              _scoreState.settled = true;
+              _scoreState.unchecked = !groundedData;
             }
+
+            const data = mergeAnalysis(frameData, groundedData);
+            // Final safety pass, idempotent, and only over what actually arrived.
+            if ('strength' in data && 'strength_label' in data) renderDiagramSection(data, action, change);
+            if (frameData) renderFrameSections(frameData, action, change);
+            if (groundedData) renderGroundedSections(groundedData);
+            renderScoreNote();
+            reveal();
             scheduleRelatedCategories(data, action, change);
           }
         }
       }
-      renderSearchProgress(buffer);
+      // Only the grounded call searches, so only its buffer holds the notation.
+      renderSearchProgress(buffers.grounded);
 
-      // After each chunk, try to render any newly-complete sections
-      if (payload_chunk_arrived(buffer)) {
-        if (tryProgressiveRender(buffer, action, change) && !resultsShown) {
-          document.getElementById('loading').classList.remove('visible');
-          document.getElementById('results').classList.add('visible');
-          scrollPastHero('results');
-          resultsShown = true;
-          document.querySelector('.cta-hint').textContent = t('results.found') || 'We found evidence, examples, and hard questions';
-        }
+      // After each chunk, try to render any newly-complete sections. Both buffers
+      // are walked because chunks from the two calls interleave arbitrarily.
+      for (const name of ['frame', 'grounded']) {
+        if (!buffers[name] || failed[name]) continue;
+        if (tryProgressiveRender(buffers[name], action, change, name)) reveal();
       }
     }
   } catch (err) {
@@ -1108,9 +1256,19 @@ async function analyze() {
   }
 }
 
-// Tiny helper to indicate the buffer has grown — we always re-try render after
-// any read(), since chunks arrive in arbitrary boundaries.
-function payload_chunk_arrived(buf) { return buf && buf.length > 0; }
+// A stream that died mid-JSON, or never wrote any, is not an error on its own:
+// the other call's half of the page still stands, and the caller decides whether
+// the pair between them produced anything at all.
+function parseStreamBuffer(buf) {
+  if (!buf) return null;
+  try {
+    const jsonStr = extractJsonObject(buf);
+    return jsonStr ? parseJSON(jsonStr) : null;
+  } catch (err) {
+    console.warn('could not parse a stream:', err.message);
+    return null;
+  }
+}
 
 function showErrorBanner(msg) {
   const banner = document.getElementById('error-banner');

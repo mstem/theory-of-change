@@ -382,6 +382,87 @@ const analyzeLimiter = rateLimit({
   message: { error: 'Too many requests. Please wait a few minutes and try again.' }
 });
 
+// The analysis runs as two calls. The frame call has no tools and writes what the
+// page can show straight away; the grounded call searches and writes what depends
+// on what came back. Splitting them is the whole reason the diagram now appears in
+// seconds rather than behind the search phase. Both halves must always emit every
+// key they own: an absent key and one still streaming are the same null to the
+// progressive renderer, and either stalls every section after it.
+function analyzePrompts(action, change) {
+  const theory = `You are an expert in social change theory, history, and empirical research. Analyze this theory of change: "Doing '${action}' will create '${change}' in the world."`;
+
+  const scoring = `Score 70–100 as Strong if there is robust peer-reviewed evidence across multiple contexts; 40–69 as Moderate if evidence exists but is mixed or context-dependent; 10–39 as Weak if evidence is thin or contested; 0–9 as Speculative if there is little to no empirical basis.`;
+
+  const frame = `${theory}
+
+You have no search tool on this pass and must answer from what you already know. A second pass is reading sources right now and will replace your score with one drawn from them, so give your honest first estimate rather than hedging toward the middle.
+
+Be specific — cite real movements, researchers, and cases. Be concise: 1-2 sentences per field, short titles.
+
+${scoring}
+
+Write nothing before the JSON. No preamble, no plan, no commentary.
+
+Then return ONLY valid JSON, with nothing after it. Always emit every key, writing an empty value as [] or "" rather than omitting the key:
+{
+  "strength": <integer 0-100>,
+  "strength_label": "<Strong | Moderate | Weak | Speculative>",
+  "summary": "<2 sentences>",
+  "assumptions": ["<assumption>", ...x3],
+  "mechanisms": ["<mechanism>", ...x3],
+  "probing_questions": ["<question>", ...x3]
+}`;
+
+  const grounded = `${theory}
+
+Work from sources to claims, never the reverse. For the two evidence sections: first establish what research and documented cases actually found about this question, then state each finding, then place it in the column its content supports. Never pick a column, write a claim to fill it, and attach a citation afterwards.
+
+Search the web before you write anything, and let what comes back outrank what you remember — your training data is older than the question. Where search turns up nothing usable, answer from what you know and set as_of to the year of the evidence you are leaning on rather than to this year.
+
+Weighing sources against each other:
+- For a claim about a quantity that moves (adoption, usage, polling, prices, error rates), the most recent credible measurement wins outright.
+- For a claim about a mechanism or an effect, a landmark replicated finding is not displaced by a single recent survey, preprint, or single-country study.
+- Where recent work genuinely contradicts established work, state both. They belong in opposite columns.
+- Weigh the source, not only the date: statistical agencies, peer-reviewed journals and established survey programmes outrank think-tank posts, which outrank vendor research.
+- Cite the primary study, not journalism about it.
+
+evidence_for and evidence_against take 0 to 3 items each. Include only findings that genuinely belong in that column. If the evidence is one-sided, leave the thin column short or empty — an empty column is an honest finding, and padding it with manufactured counterpoints is a failure. Always emit both keys, writing an empty column as [] rather than omitting the key. historical_examples has exactly 3 items.
+
+Be specific — cite real movements, researchers, and cases. Be concise: 1-2 sentences per field, short titles.
+
+Your score is the one the reader ends up with, and it must follow the sources you just read rather than your prior impression of the theory. ${scoring}
+
+Before the JSON, write nothing a person would read. No sentences, no plan, no summary of what a search returned. If you write anything at all between searches, it is one line per search in the form q:<keywords>, each on its own line, ending with a line break before anything else follows it.
+
+Then return ONLY valid JSON, with nothing after it. Always emit every key, writing an empty value as [] rather than omitting the key:
+{
+  "strength": <integer 0-100>,
+  "strength_label": "<Strong | Moderate | Weak | Speculative>",
+  "evidence_for": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>", "as_of": "<4-digit year the finding is from>"}, ...0 to 3],
+  "evidence_against": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>", "as_of": "<4-digit year the finding is from>"}, ...0 to 3],
+  "historical_examples": [{"name": "<movement>", "period": "<dates>", "outcome": "<1 sentence>", "relevance": "<1 sentence>"}, ...x3]
+}`;
+
+  return { frame, grounded };
+}
+
+// One cache entry holds both streams. Entries written before the split hold a
+// single undivided analysis, and replaying one as a frame would leave the evidence
+// sections on skeletons for good, so parseStreams reads them as a miss instead.
+function serializeStreams(streams) {
+  return JSON.stringify({ frame: streams.frame, grounded: streams.grounded });
+}
+
+function parseStreams(text) {
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed.frame !== 'string' || typeof parsed.grounded !== 'string') return null;
+    return { frame: parsed.frame, grounded: parsed.grounded };
+  } catch {
+    return null;
+  }
+}
+
 app.post('/api/analyze', analyzeLimiter, async (req, res) => {
   const { action, change } = req.body || {};
   if (typeof action !== 'string' || typeof change !== 'string' || !action.trim() || !change.trim()) {
@@ -400,9 +481,10 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
 
   const cacheKey = `${action.toLowerCase().trim()}|||${change.toLowerCase().trim()}`;
-  const cached = cacheGet(cacheKey);
+  const cached = parseStreams(cacheGet(cacheKey) ?? '');
   if (cached) {
-    res.write(`data: ${JSON.stringify({ chunk: cached })}\n\n`);
+    res.write(`data: ${JSON.stringify({ chunk: cached.frame, s: 'frame' })}\n\n`);
+    res.write(`data: ${JSON.stringify({ chunk: cached.grounded, s: 'grounded' })}\n\n`);
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     return res.end();
   }
@@ -417,42 +499,97 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  const prompt = `You are an expert in social change theory, history, and empirical research. Analyze this theory of change: "Doing '${action}' will create '${change}' in the world."
+  const prompts = analyzePrompts(action, change);
 
-Work from sources to claims, never the reverse. For the two evidence sections: first establish what research and documented cases actually found about this question, then state each finding, then place it in the column its content supports. Never pick a column, write a claim to fill it, and attach a citation afterwards.
+  // Both calls are in flight at once, so the page has the diagram while the
+  // searches are still running. The pair shares one reservation and settles once,
+  // because settling twice against the same reservation would credit the day back
+  // an estimate it was only charged for once.
+  const text = { frame: '', grounded: '' };
+  const complete = { frame: false, grounded: false };
+  const finished = { frame: false, grounded: false };
+  let billed = 0;
+  let settled = false;
 
-Search the web before you write anything, and let what comes back outrank what you remember — your training data is older than the question. Where search turns up nothing usable, answer from what you know and set as_of to the year of the evidence you are leaning on rather than to this year.
+  function closeIfBothFinished() {
+    if (!finished.frame || !finished.grounded) return;
+    if (settled) return;
+    settled = true;
+    // A half-written analysis is worse than no cache entry: it would replay
+    // instantly and permanently as a page with a hole in it.
+    if (complete.frame && complete.grounded) cacheSet(cacheKey, serializeStreams(text));
+    else console.warn('analyze not cached: one of the two calls did not finish cleanly');
+    console.log(`analyze total: cost=$${billed.toFixed(4)}, spent_today=$${settleSpend(reservation, billed).toFixed(2)}/${DAILY_BUDGET_USD}`);
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
+  }
 
-Weighing sources against each other:
-- For a claim about a quantity that moves (adoption, usage, polling, prices, error rates), the most recent credible measurement wins outright.
-- For a claim about a mechanism or an effect, a landmark replicated finding is not displaced by a single recent survey, preprint, or single-country study.
-- Where recent work genuinely contradicts established work, state both. They belong in opposite columns.
-- Weigh the source, not only the date: statistical agencies, peer-reviewed journals and established survey programmes outrank think-tank posts, which outrank vendor research.
-- Cite the primary study, not journalism about it.
+  // A call that fails takes its own sections down and leaves the other call's
+  // sections standing. The tag is what lets the page say which part is missing
+  // rather than replacing a screen of finished work with an error banner.
+  function failCall(name, err) {
+    console.error(`analyze ${name} stream error:`, err);
+    if (finished[name]) return;
+    finished[name] = true;
+    res.write(`data: ${JSON.stringify({ error: 'Analysis failed. Please try again.', s: name })}\n\n`);
+    closeIfBothFinished();
+  }
 
-evidence_for and evidence_against take 0 to 3 items each. Include only findings that genuinely belong in that column. If the evidence is one-sided, leave the thin column short or empty — an empty column is an honest finding, and padding it with manufactured counterpoints is a failure. Always emit both keys, writing an empty column as [] rather than omitting the key. Every other array has exactly 3 items.
+  function runCall(name, options) {
+    const stream = client.messages.stream(options);
 
-Be specific — cite real movements, researchers, and cases. Be concise: 1-2 sentences per field, short titles.
+    stream.on('text', (chunk) => {
+      text[name] += chunk;
+      res.write(`data: ${JSON.stringify({ chunk, s: name })}\n\n`);
+    });
 
-Score 70–100 as Strong if there is robust peer-reviewed evidence across multiple contexts; 40–69 as Moderate if evidence exists but is mixed or context-dependent; 10–39 as Weak if evidence is thin or contested; 0–9 as Speculative if there is little to no empirical basis.
+    stream.on('finalMessage', (msg) => {
+      const u = msg?.usage || {};
+      const cost = analysisCost(u);
+      billed += cost;
+      complete[name] = isCompleteAnalysis(msg);
 
-Before the JSON, write nothing a person would read. No sentences, no plan, no summary of what a search returned. If you write anything at all between searches, it is one line per search in the form q:<keywords>, each on its own line, ending with a line break before anything else follows it.
+      const line = [
+        `stop_reason=${msg?.stop_reason}`,
+        `in=${u.input_tokens ?? '?'}`,
+        `out=${u.output_tokens ?? '?'}`,
+        `cache_read=${u.cache_read_input_tokens ?? 0}`,
+        `cache_write=${u.cache_creation_input_tokens ?? 0}`,
+        `cost=$${cost.toFixed(4)}`
+      ];
 
-Then return ONLY valid JSON, with nothing after it:
-{
-  "strength": <integer 0-100>,
-  "strength_label": "<Strong | Moderate | Weak | Speculative>",
-  "summary": "<2 sentences>",
-  "assumptions": ["<assumption>", ...x3],
-  "mechanisms": ["<mechanism>", ...x3],
-  "evidence_for": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>", "as_of": "<4-digit year the finding is from>"}, ...0 to 3],
-  "evidence_against": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>", "as_of": "<4-digit year the finding is from>"}, ...0 to 3],
-  "historical_examples": [{"name": "<movement>", "period": "<dates>", "outcome": "<1 sentence>", "relevance": "<1 sentence>"}, ...x3],
-  "probing_questions": ["<question>", ...x3]
-}`;
+      if (name === 'grounded') {
+        const { searches, errors, results } = webSearchUsage(msg);
+        for (const code of errors) console.warn(`analyze web search failed: ${code}`);
+        // A turn can search, get nothing back, and answer from training data anyway.
+        // It ends cleanly and reads like any other analysis, so this line is the only
+        // place the difference between a grounded answer and an ungrounded one shows.
+        if (results === 0) console.warn('analyze was not grounded: no search results came back');
+        line.unshift(`${searches} search(es)`, `${errors.length} search error(s)`);
+        // The API's own count of billable searches, which is what the invoice reads,
+        // rather than the blocks the model happened to leave in the transcript.
+        line.push(`billed_searches=${u.server_tool_use?.web_search_requests ?? '?'}`, `results=${results}`);
+      }
+      console.log(`analyze ${name}: ${line.join(', ')}`);
+
+      finished[name] = true;
+      closeIfBothFinished();
+    });
+
+    stream.on('error', (err) => failCall(name, err));
+  }
 
   try {
-    const stream = client.messages.stream({
+    // No tools and no cache marker. This prompt is shorter than the 1,024-token
+    // minimum the model caches at, so a marker here would pay the write premium
+    // for a cache that is never read.
+    runCall('frame', {
+      model: process.env.CLAUDE_MODEL || 'claude-opus-4-8',
+      max_tokens: 2048,
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompts.frame }] }]
+    });
+
+    runCall('grounded', {
       model: process.env.CLAUDE_MODEL || 'claude-opus-4-8',
       // A measured grounded run emitted 3,699 output tokens, and the search notation
       // comes out of the same budget. Hitting the cap truncates the JSON, which the
@@ -469,48 +606,7 @@ Then return ONLY valid JSON, with nothing after it:
       // 1,024-token minimum on this model, so it only just qualifies: if it is ever
       // shortened, cache_write in the analyze log line goes to zero and the loop
       // silently returns to full price.
-      messages: [{ role: 'user', content: [{ type: 'text', text: prompt, cache_control: { type: 'ephemeral' } }] }]
-    });
-
-    let full = '';
-    stream.on('text', (text) => {
-      full += text;
-      res.write(`data: ${JSON.stringify({ chunk: text })}\n\n`);
-    });
-
-    stream.on('finalMessage', (msg) => {
-      const { searches, errors, results } = webSearchUsage(msg);
-      for (const code of errors) console.warn(`analyze web search failed: ${code}`);
-      // A turn can search, get nothing back, and answer from training data anyway.
-      // It ends cleanly and reads like any other analysis, so this line is the only
-      // place the difference between a grounded answer and an ungrounded one shows.
-      if (results === 0) console.warn('analyze was not grounded: no search results came back');
-      const u = msg?.usage || {};
-      console.log([
-        `analyze: ${searches} search(es)`,
-        `${errors.length} search error(s)`,
-        `stop_reason=${msg?.stop_reason}`,
-        `in=${u.input_tokens ?? '?'}`,
-        `out=${u.output_tokens ?? '?'}`,
-        `cache_read=${u.cache_read_input_tokens ?? 0}`,
-        `cache_write=${u.cache_creation_input_tokens ?? 0}`,
-        // The API's own count of billable searches, which is what the invoice reads,
-        // rather than the blocks the model happened to leave in the transcript.
-        `billed_searches=${u.server_tool_use?.web_search_requests ?? '?'}`,
-        `results=${results}`,
-        `cost=$${analysisCost(u).toFixed(4)}`,
-        `spent_today=$${settleSpend(reservation, analysisCost(u)).toFixed(2)}/${DAILY_BUDGET_USD}`
-      ].join(', '));
-      if (isCompleteAnalysis(msg)) cacheSet(cacheKey, full);
-      else console.warn(`analyze not cached: turn ended on ${msg?.stop_reason}`);
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      res.end();
-    });
-
-    stream.on('error', (err) => {
-      console.error('analyze stream error:', err);
-      res.write(`data: ${JSON.stringify({ error: 'Analysis failed. Please try again.' })}\n\n`);
-      res.end();
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompts.grounded, cache_control: { type: 'ephemeral' } }] }]
     });
   } catch (err) {
     console.error('analyze error:', err);
@@ -892,4 +988,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, reserveSpend, settleSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, analyzePrompts, serializeStreams, parseStreams, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, reserveSpend, settleSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
