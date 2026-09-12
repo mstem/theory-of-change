@@ -605,7 +605,7 @@ document.addEventListener('click', async (e) => {
     // A refused lookup is not a missing source. Saying "no source found" here
     // would report on a search nobody ran.
     if (res.status === 503) {
-      btn.textContent = t('source.lookupPaused') || 'link lookups resume tomorrow';
+      btn.textContent = t('source.lookupPaused') || 'Research budget spent for today - come back tomorrow';
       btn.classList.add('source-lookup-empty');
       return;
     }
