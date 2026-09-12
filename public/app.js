@@ -865,31 +865,39 @@ function tryProgressiveRender(buffer, action, change) {
 // only that notation: when a search fails the model drops back into prose about
 // rate limits, and that is it talking to itself, not to the reader.
 function extractSearchQueries(buf) {
+  // A search is a handful of keywords; the longest seen in live runs was 74
+  // characters. Past this it is a sentence stuck to the end of one.
+  const QUERY_DISPLAY_MAX = 90;
+
   // The analysis opens with a quoted key. A brace in the narration does not, and
   // cutting the preamble there would stop the searches rendering for the rest of
   // the wait, which is most of it.
   const jsonAt = buf.search(/\{\s*"/);
   const preamble = jsonAt < 0 ? buf : buf.slice(0, jsonAt);
+  const lines = preamble.split('\n');
+  // Without the JSON to close it, the last line may still be arriving.
+  if (jsonAt < 0 && !preamble.endsWith('\n')) lines.pop();
 
-  // Split on the notation rather than on line breaks. The model writes one search
-  // per line when it is going well and runs two together when it is not, and when
-  // a search fails it carries straight on into a sentence about rate limits with
-  // nothing between them. A line is not a reliable unit here; "q:" is.
-  const parts = preamble.split('q:').slice(1);
-
-  return parts
-    .map((part, i) => {
-      // The last one may still be arriving, unless the JSON has started behind it
-      // or another search follows.
-      const settled = part.includes('\n') || i < parts.length - 1 || jsonAt >= 0;
-      if (!settled) return '';
-      const line = part.split('\n')[0].trim();
-      // A capital with no space before it is a sentence starting where the search
-      // ended. Search terms keep their spaces, so "Science Advances" is safe.
-      const runOn = line.search(/[a-z0-9][A-Z]/);
-      return runOn < 0 ? line : line.slice(0, runOn + 1).trim();
-    })
-    .filter(Boolean);
+  const queries = [];
+  for (const line of lines) {
+    // Anchored to the start of a line. The model mentions its own notation when a
+    // search goes wrong ("rate limited on q:..."), and that is prose, not a search.
+    if (!line.startsWith('q:')) continue;
+    // A second search run straight on from the first with no line break between
+    // them: the marker turns up mid-word. A colon inside a search has a space
+    // after it, which is what keeps "Iraq: case outcomes" in one piece.
+    const merged = line.slice(2).replace(/([^\s])q:(?=[^\s])/g, '$1\n');
+    for (const part of merged.split('\n')) {
+      const query = part.trim();
+      if (!query) continue;
+      // A search is a handful of keywords. Anything much longer is a sentence
+      // stuck to the end of one, so show a bounded amount and mark the cut.
+      queries.push(query.length > QUERY_DISPLAY_MAX
+        ? query.slice(0, QUERY_DISPLAY_MAX).trimEnd() + '…'
+        : query);
+    }
+  }
+  return queries;
 }
 
 // Strictness is the wrong test for which object is the analysis. A raw newline

@@ -1035,17 +1035,43 @@ test('two searches written without a line break between them are read as two', (
   ]);
 });
 
-test('a sentence running straight on from a search is cut off it', () => {
+// A search is a handful of keywords. Anything far longer is a sentence stuck to
+// the end of one, or two searches run together, and the wait shows a bounded
+// amount of it rather than a paragraph. Cutting on where a capital letter appears
+// looks cleverer and mangles every CamelCase name the research searches are full of.
+test('a sentence running straight on from a search is cut short', () => {
   const buf = 'q:voter information campaigns meta-analysis Science Advances findingsI have enough evidence to build the analysis.\n';
-  assert.deepEqual(searchQueries(buf), ['voter information campaigns meta-analysis Science Advances findings']);
+  const [shown] = searchQueries(buf);
+  assert.ok(shown.startsWith('voter information campaigns meta-analysis'), shown);
+  assert.ok(shown.length < 100, `showed ${shown.length} characters of prose`);
+  assert.equal(/enough evidence to build/.test(shown), false, shown);
 });
 
-test('capitals inside a search survive the cut', () => {
+test('a sentence that runs on in lower case is cut short too', () => {
+  const buf = 'q:bed nets usage gapthe web_search tool has hit a hard usage cap for this session and is not recovering.\n';
+  const [shown] = searchQueries(buf);
+  assert.ok(shown.length < 100, `showed ${shown.length} characters of prose`);
+  assert.equal(/not recovering/.test(shown), false, shown);
+});
+
+test('a capital inside a word survives, since research searches are full of them', () => {
+  assert.deepEqual(searchQueries('q:mRNA vaccine uptake trials\n'), ['mRNA vaccine uptake trials']);
+  assert.deepEqual(searchQueries('q:TikTok McKinsey PubMed meta-analysis\n'), ['TikTok McKinsey PubMed meta-analysis']);
   assert.deepEqual(searchQueries('q:AI Democracy Projects chatbot election accuracy\n'),
     ['AI Democracy Projects chatbot election accuracy']);
 });
 
-test('the prompt asks for one search per line and nothing else on it', () => {
+test('a colon inside a search does not split it in two', () => {
+  assert.deepEqual(searchQueries('q:nonviolent resistance Iraq: case outcomes\n'),
+    ['nonviolent resistance Iraq: case outcomes']);
+});
+
+test('prose that mentions the notation is still not a search', () => {
+  assert.deepEqual(searchQueries('q:alpha beta\nRate limited on q:alpha beta, retrying.\n'), ['alpha beta']);
+});
+
+test('the prompt asks for the notation and a line break after each search', () => {
   const src = readFileSync(join(import.meta.dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /each on its own line/);
+  assert.match(src, /q:<keywords>/);
+  assert.match(src, /line break/);
 });
