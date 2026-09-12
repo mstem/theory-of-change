@@ -1022,3 +1022,65 @@ test('lookups stop at their slice while the day as a whole still has room', () =
   assert.equal(budgetExhausted(DAY_THREE, 'lookup'), true);
   assert.equal(budgetExhausted(DAY_THREE, 'analysis'), false);
 });
+
+// Captured from live runs. The model does not reliably put each search on its own
+// line, and sometimes runs straight from the last one into a sentence, so a filter
+// that works line by line shows two searches merged and a sentence stuck to the end.
+
+test('two searches written without a line break between them are read as two', () => {
+  const buf = 'q:nonviolent resistance democratic transition Chenoweth Stephan success ratesq:nonviolent resistance declining success rate 2010s Chenoweth\n';
+  assert.deepEqual(searchQueries(buf), [
+    'nonviolent resistance democratic transition Chenoweth Stephan success rates',
+    'nonviolent resistance declining success rate 2010s Chenoweth'
+  ]);
+});
+
+// A search is a handful of keywords. Anything far longer is a sentence stuck to
+// the end of one, or two searches run together, and the wait shows a bounded
+// amount of it rather than a paragraph. Cutting on where a capital letter appears
+// looks cleverer and mangles every CamelCase name the research searches are full of.
+test('a sentence running straight on from a search is cut short', () => {
+  const buf = 'q:voter information campaigns meta-analysis Science Advances findingsI have enough evidence to build the analysis.\n';
+  const [shown] = searchQueries(buf);
+  assert.ok(shown.startsWith('voter information campaigns meta-analysis'), shown);
+  assert.ok(shown.length < 100, `showed ${shown.length} characters of prose`);
+  assert.equal(/enough evidence to build/.test(shown), false, shown);
+});
+
+test('a sentence that runs on in lower case is cut short too', () => {
+  const buf = 'q:bed nets usage gapthe web_search tool has hit a hard usage cap for this session and is not recovering.\n';
+  const [shown] = searchQueries(buf);
+  assert.ok(shown.length < 100, `showed ${shown.length} characters of prose`);
+  assert.equal(/not recovering/.test(shown), false, shown);
+});
+
+test('a capital inside a word survives, since research searches are full of them', () => {
+  assert.deepEqual(searchQueries('q:mRNA vaccine uptake trials\n'), ['mRNA vaccine uptake trials']);
+  assert.deepEqual(searchQueries('q:TikTok McKinsey PubMed meta-analysis\n'), ['TikTok McKinsey PubMed meta-analysis']);
+  assert.deepEqual(searchQueries('q:AI Democracy Projects chatbot election accuracy\n'),
+    ['AI Democracy Projects chatbot election accuracy']);
+});
+
+test('a colon inside a search does not split it in two', () => {
+  assert.deepEqual(searchQueries('q:nonviolent resistance Iraq: case outcomes\n'),
+    ['nonviolent resistance Iraq: case outcomes']);
+});
+
+test('prose that mentions the notation is still not a search', () => {
+  assert.deepEqual(searchQueries('q:alpha beta\nRate limited on q:alpha beta, retrying.\n'), ['alpha beta']);
+});
+
+test('the prompt asks for the notation and a line break after each search', () => {
+  const src = readFileSync(join(import.meta.dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /q:<keywords>/);
+  assert.match(src, /line break/);
+});
+
+// An indented notation line is not a formatting quirk to shrug at: a startsWith
+// check drops it silently, so the whole wait shows an empty list rather than a
+// slightly wrong one. A capitalised Q: stays unread on purpose, since Q: is how
+// prose opens a question.
+test('a search the model indents is still a search', () => {
+  assert.deepEqual(searchQueries('  q:bed nets child mortality\n'), ['bed nets child mortality']);
+  assert.deepEqual(searchQueries('\tq:bed nets child mortality\n'), ['bed nets child mortality']);
+});

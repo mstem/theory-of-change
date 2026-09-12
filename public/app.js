@@ -865,6 +865,10 @@ function tryProgressiveRender(buffer, action, change) {
 // only that notation: when a search fails the model drops back into prose about
 // rate limits, and that is it talking to itself, not to the reader.
 function extractSearchQueries(buf) {
+  // A search is a handful of keywords; the longest seen in live runs was 74
+  // characters. Past this it is a sentence stuck to the end of one.
+  const QUERY_DISPLAY_MAX = 90;
+
   // The analysis opens with a quoted key. A brace in the narration does not, and
   // cutting the preamble there would stop the searches rendering for the rest of
   // the wait, which is most of it.
@@ -873,10 +877,35 @@ function extractSearchQueries(buf) {
   const lines = preamble.split('\n');
   // Without the JSON to close it, the last line may still be arriving.
   if (jsonAt < 0 && !preamble.endsWith('\n')) lines.pop();
-  return lines
-    .map((line) => line.match(/^q:\s*(.+?)\s*$/))
-    .filter(Boolean)
-    .map((m) => m[1]);
+
+  const queries = [];
+  for (const raw of lines) {
+    // Anchored to the start of a line. The model mentions its own notation when a
+    // search goes wrong ("rate limited on q:..."), and that is prose, not a search.
+    // Leading space is forgiven, because a startsWith check would drop an indented
+    // line silently and empty the whole list rather than showing something odd.
+    // A capitalised Q: is left unread on purpose: that is how prose opens a question.
+    const line = raw.trim();
+    if (!line.startsWith('q:')) continue;
+    // A second search run straight on from the first with no line break between
+    // them: the marker turns up mid-word. A colon inside a search has a space
+    // after it, which is what keeps "Iraq: case outcomes" in one piece. A word
+    // ending in q with no space after its colon is read as a merge and split
+    // wrongly, so "Iraq:2003 polling" loses its first word. Splitting merged
+    // searches is worth that: the merge happens in live runs and the collision
+    // is a rare spelling in a list that is only ever displayed.
+    const merged = line.slice(2).replace(/([^\s])q:(?=[^\s])/g, '$1\n');
+    for (const part of merged.split('\n')) {
+      const query = part.trim();
+      if (!query) continue;
+      // A search is a handful of keywords. Anything much longer is a sentence
+      // stuck to the end of one, so show a bounded amount and mark the cut.
+      queries.push(query.length > QUERY_DISPLAY_MAX
+        ? query.slice(0, QUERY_DISPLAY_MAX).trimEnd() + '…'
+        : query);
+    }
+  }
+  return queries;
 }
 
 // Strictness is the wrong test for which object is the analysis. A raw newline
