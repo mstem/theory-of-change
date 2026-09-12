@@ -1075,3 +1075,12 @@ test('the prompt asks for the notation and a line break after each search', () =
   assert.match(src, /q:<keywords>/);
   assert.match(src, /line break/);
 });
+
+// An indented notation line is not a formatting quirk to shrug at: a startsWith
+// check drops it silently, so the whole wait shows an empty list rather than a
+// slightly wrong one. A capitalised Q: stays unread on purpose, since Q: is how
+// prose opens a question.
+test('a search the model indents is still a search', () => {
+  assert.deepEqual(searchQueries('  q:bed nets child mortality\n'), ['bed nets child mortality']);
+  assert.deepEqual(searchQueries('\tq:bed nets child mortality\n'), ['bed nets child mortality']);
+});

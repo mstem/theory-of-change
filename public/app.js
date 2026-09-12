@@ -879,13 +879,21 @@ function extractSearchQueries(buf) {
   if (jsonAt < 0 && !preamble.endsWith('\n')) lines.pop();
 
   const queries = [];
-  for (const line of lines) {
+  for (const raw of lines) {
     // Anchored to the start of a line. The model mentions its own notation when a
     // search goes wrong ("rate limited on q:..."), and that is prose, not a search.
+    // Leading space is forgiven, because a startsWith check would drop an indented
+    // line silently and empty the whole list rather than showing something odd.
+    // A capitalised Q: is left unread on purpose: that is how prose opens a question.
+    const line = raw.trim();
     if (!line.startsWith('q:')) continue;
     // A second search run straight on from the first with no line break between
     // them: the marker turns up mid-word. A colon inside a search has a space
-    // after it, which is what keeps "Iraq: case outcomes" in one piece.
+    // after it, which is what keeps "Iraq: case outcomes" in one piece. A word
+    // ending in q with no space after its colon is read as a merge and split
+    // wrongly, so "Iraq:2003 polling" loses its first word. Splitting merged
+    // searches is worth that: the merge happens in live runs and the collision
+    // is a rare spelling in a list that is only ever displayed.
     const merged = line.slice(2).replace(/([^\s])q:(?=[^\s])/g, '$1\n');
     for (const part of merged.split('\n')) {
       const query = part.trim();
