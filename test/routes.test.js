@@ -46,7 +46,7 @@ delete process.env.RESEND_API_KEY;
 delete process.env.CURATOR_API_URL;
 delete process.env.FEEDBACK_TO;
 
-const { app, inlineScriptHashes, cacheSet, recordSpend, DAILY_BUDGET_USD } = await import('../server.js');
+const { app, inlineScriptHashes, cacheSet, recordSpend, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD } = await import('../server.js');
 
 const server = app.listen(0);
 await once(server, 'listening');
@@ -126,6 +126,25 @@ test('analyze enforces its rate limit of 5 per 15 minutes', async () => {
   for (let i = 0; i < 5; i++) assert.notEqual((await post('/api/analyze', {}, { ip })).status, 429);
   const res = await post('/api/analyze', {}, { ip });
   assert.equal(res.status, 429);
+});
+
+// Before the two below, and that placement is the whole point: this spends only
+// the lookup slice, so the day still has room and analyze still answers. Written
+// after the day is spent it would pass with the purpose argument deleted from
+// the route, which is what the first version of it did.
+
+test('lookups stop at their own slice while analyses carry on', async () => {
+  recordSpend(DAILY_LOOKUP_BUDGET_USD, Date.now(), 'lookup');
+
+  process.env.ANTHROPIC_API_KEY = 'never-used-no-request-is-made';
+  const refused = await post('/api/source-url', { source: 'Elinor Ostrom', context: 'commons' });
+  cacheSet('slice check|||still answers', '{"strength": 61}');
+  const analysis = await post('/api/analyze', { action: 'Slice Check', change: 'Still Answers' });
+  const body = await analysis.text();
+  delete process.env.ANTHROPIC_API_KEY;
+
+  assert.equal(refused.status, 503);
+  assert.match(body, /"strength\\": 61/);
 });
 
 // These two run last in this section: spending the day is global state, and every

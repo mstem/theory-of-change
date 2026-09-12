@@ -606,6 +606,7 @@ document.addEventListener('click', async (e) => {
     // would report on a search nobody ran.
     if (res.status === 503) {
       btn.textContent = t('source.lookupPaused') || 'link lookups resume tomorrow';
+      btn.classList.add('source-lookup-empty');
       return;
     }
 

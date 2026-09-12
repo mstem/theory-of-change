@@ -814,9 +814,12 @@ Return ONLY valid JSON: {"url": "<https URL>"}
     }
     return res.json({ url });
   } catch (err) {
-    // Give the reservation back. Otherwise an upstream outage spends the day's
-    // slice on lookups that never ran.
-    settleSpend(reservation, 0);
+    // The reservation stands, which is what settleSpend's own comment asks for
+    // and what the analyze path does. A lookup that throws has usually already
+    // run and paid for its searches: upstream rate limiting makes the model wait
+    // and retry, so the failures that reach here are the expensive ones, not the
+    // free ones. Refunding them would understate the day in exactly the case the
+    // meter exists for.
     console.warn('source-url lookup failed:', err.message || err);
     return res.status(502).json({ error: 'Lookup failed' });
   }
