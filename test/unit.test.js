@@ -38,6 +38,9 @@ const {
   loadCacheFromDisk,
   CACHE_MAX,
   CACHE_TTL_MS,
+  analyzePrompts,
+  serializeStreams,
+  parseStreams,
 } = await import('../server.js');
 
 test.after(() => rmSync(TMP_CACHE_DIR, { recursive: true, force: true }));
@@ -1083,4 +1086,179 @@ test('the prompt asks for the notation and a line break after each search', () =
 test('a search the model indents is still a search', () => {
   assert.deepEqual(searchQueries('  q:bed nets child mortality\n'), ['bed nets child mortality']);
   assert.deepEqual(searchQueries('\tq:bed nets child mortality\n'), ['bed nets child mortality']);
+});
+
+// ─── The two-call split ───────────────────────────────────────────────────────
+// The analysis runs as two calls now: a frame call with no tools that writes the
+// diagram, mechanisms, assumptions and questions in seconds, and a grounded call
+// that searches and writes the evidence, the history and the real score. These
+// tests hold the boundary between them, because a key that lands in neither half
+// disappears from the page without any error to notice.
+
+test('the frame prompt carries every key the frame call owns', () => {
+  const { frame } = analyzePrompts('organising', 'less isolation');
+  for (const key of ['strength', 'strength_label', 'summary', 'assumptions', 'mechanisms', 'probing_questions']) {
+    assert.match(frame, new RegExp(`"${key}"`), `frame prompt no longer asks for ${key}`);
+  }
+});
+
+test('the frame prompt asks for nothing the grounded call owns', () => {
+  const { frame } = analyzePrompts('organising', 'less isolation');
+  for (const key of ['evidence_for', 'evidence_against', 'historical_examples']) {
+    assert.doesNotMatch(frame, new RegExp(`"${key}"`), `${key} would be written twice`);
+  }
+});
+
+test('the grounded prompt carries every key the grounded call owns', () => {
+  const { grounded } = analyzePrompts('organising', 'less isolation');
+  for (const key of ['strength', 'strength_label', 'evidence_for', 'evidence_against', 'historical_examples']) {
+    assert.match(grounded, new RegExp(`"${key}"`), `grounded prompt no longer asks for ${key}`);
+  }
+});
+
+// The whole point of the split. A frame call that searches is a frame call that
+// takes a minute, and the reader is back to watching an empty page.
+test('the frame prompt never tells the model to search', () => {
+  const { frame } = analyzePrompts('organising', 'less isolation');
+  assert.doesNotMatch(frame, /search the web/i);
+});
+
+// An absent key and one still streaming are the same null to the renderer, so a
+// key the model may omit stalls every section after it. Both halves have to say so.
+test('both prompts require every key to be emitted rather than omitted', () => {
+  const { frame, grounded } = analyzePrompts('organising', 'less isolation');
+  assert.match(frame, /rather than omitting/);
+  assert.match(grounded, /rather than omitting/);
+});
+
+test('the grounded prompt keeps the rule against padding a thin evidence column', () => {
+  const { grounded } = analyzePrompts('organising', 'less isolation');
+  assert.match(grounded, /an empty column as \[\]/);
+});
+
+test('both prompts carry the action and the change', () => {
+  const { frame, grounded } = analyzePrompts('teaching debate', 'less polarisation');
+  for (const prompt of [frame, grounded]) {
+    assert.match(prompt, /teaching debate/);
+    assert.match(prompt, /less polarisation/);
+  }
+});
+
+// ─── Caching two streams in one entry ─────────────────────────────────────────
+
+test('a cached analysis round-trips both streams', () => {
+  const text = serializeStreams({ frame: '{"strength": 60}', grounded: '{"evidence_for": []}' });
+  assert.deepEqual(parseStreams(text), { frame: '{"strength": 60}', grounded: '{"evidence_for": []}' });
+});
+
+// Entries written before the split hold one undivided analysis. Replaying one as a
+// frame would leave the evidence sections on skeletons for good, so it reads as a
+// miss and the analysis is run again. The 24-hour TTL empties them within a day.
+test('an entry written before the split is not readable as two streams', () => {
+  assert.equal(parseStreams('{"strength": 60, "evidence_for": []}'), null);
+});
+
+test('a corrupted cache entry is not readable as two streams', () => {
+  assert.equal(parseStreams('not json at all'), null);
+  assert.equal(parseStreams('{"frame": 7, "grounded": "x"}'), null);
+});
+
+// ─── The page's half of the split ─────────────────────────────────────────────
+
+// Reads a top-level array constant out of the shipped script. The page cannot be
+// imported, and a section list that drifts from the prompts loses a whole section
+// with no error anywhere.
+function sectionList(name) {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const start = appSrc.indexOf(`const ${name} = [`);
+  assert.notEqual(start, -1, `public/app.js no longer defines ${name}`);
+  const body = appSrc.slice(start, appSrc.indexOf(']', start));
+  return [...body.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+}
+
+// The keys each prompt asks for, read off the JSON skeleton at the end of it.
+function promptKeys(prompt) {
+  return [...prompt.matchAll(/^ {2}"([a-z_]+)":/gm)].map((m) => m[1]);
+}
+
+test('the page renders every key the frame call is asked for', () => {
+  const { frame } = analyzePrompts('a', 'b');
+  assert.deepEqual(sectionList('FRAME_SECTIONS').sort(), promptKeys(frame).sort());
+});
+
+test('the page renders every key the grounded call is asked for', () => {
+  const { grounded } = analyzePrompts('a', 'b');
+  assert.deepEqual(sectionList('GROUNDED_SECTIONS').sort(), promptKeys(grounded).sort());
+});
+
+// The helpers each function leans on, sliced in alongside it. A missing one would
+// throw inside the function under test and be indistinguishable from it failing.
+const CLIENT_DEPENDENCIES = {
+  parseStreamBuffer: ['extractJsonObject', 'isRecoverableJson', 'parseJSON']
+};
+
+function clientFn(name, ...args) {
+  const appSrc = readFileSync(join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
+  const body = [...(CLIENT_DEPENDENCIES[name] || []), name]
+    .map((fn) => sliceFunction(appSrc, fn))
+    .join('\n');
+  return new Function('console', 'args', `${body}\nreturn ${name}(...args);`)(console, args);
+}
+
+// A three-point drift between an estimate and a sourced score is noise. Saying so
+// out loud would teach readers to distrust a number that did not really change.
+test('a score that drifts a few points is not announced', () => {
+  assert.equal(clientFn('scoreMoved', { strength: 60, strength_label: 'Moderate' }, { strength: 57, strength_label: 'Moderate' }), false);
+});
+
+test('a score that moves ten points or more is announced', () => {
+  assert.equal(clientFn('scoreMoved', { strength: 60, strength_label: 'Moderate' }, { strength: 45, strength_label: 'Moderate' }), true);
+});
+
+// The label is what the reader actually reads off the badge, so crossing a band
+// is a move however few points it took.
+test('a changed label is announced however small the move', () => {
+  assert.equal(clientFn('scoreMoved', { strength: 42, strength_label: 'Moderate' }, { strength: 39, strength_label: 'Weak' }), true);
+});
+
+test('nothing is announced before the grounded score has arrived', () => {
+  assert.equal(clientFn('scoreMoved', { strength: 42, strength_label: 'Moderate' }, {}), false);
+  assert.equal(clientFn('scoreMoved', {}, { strength: 42, strength_label: 'Moderate' }), false);
+});
+
+test('the grounded score replaces the one the frame call guessed', () => {
+  const merged = clientFn('mergeAnalysis',
+    { strength: 60, strength_label: 'Moderate', summary: 'from the frame' },
+    { strength: 25, strength_label: 'Weak', evidence_for: [] });
+  assert.equal(merged.strength, 25);
+  assert.equal(merged.strength_label, 'Weak');
+});
+
+test('the frame keeps the sections the grounded call never writes', () => {
+  const merged = clientFn('mergeAnalysis',
+    { summary: 'from the frame', mechanisms: ['one'], probing_questions: ['why'] },
+    { strength: 25, evidence_for: [{ title: 'x' }] });
+  assert.equal(merged.summary, 'from the frame');
+  assert.deepEqual(merged.mechanisms, ['one']);
+  assert.deepEqual(merged.evidence_for, [{ title: 'x' }]);
+});
+
+// A grounded call that died leaves no keys at all. Merging its absence over a
+// finished frame would blank the diagram that is already on the screen.
+test('a grounded call that wrote nothing does not blank the frame', () => {
+  const merged = clientFn('mergeAnalysis', { strength: 60, summary: 'from the frame' }, {});
+  assert.equal(merged.strength, 60);
+  assert.equal(merged.summary, 'from the frame');
+});
+
+// A call that ends without usable JSON is not an error the server reported: the
+// stream closed cleanly and the text in it is unusable. The page has to treat it
+// as a failed call, or its sections sit on skeletons with nothing ever arriving.
+test('a stream that carries no JSON parses as nothing rather than throwing', () => {
+  assert.equal(clientFn('parseStreamBuffer', ''), null);
+  assert.equal(clientFn('parseStreamBuffer', 'q:one search\nq:another\n'), null);
+});
+
+test('a stream wrapped in a code fence still parses', () => {
+  assert.deepEqual(clientFn('parseStreamBuffer', '```json\n{"strength": 40}\n```'), { strength: 40 });
 });

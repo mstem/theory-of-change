@@ -349,6 +349,34 @@
     border-radius: 50%;
   }
 
+  /* The score on screen is an estimate until the grounded call reports. The
+     shimmer runs off a stream that is genuinely still open and stops when it
+     closes, so it is reporting rather than decorating. */
+  .score-note {
+    margin-top: 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 400;
+    color: var(--muted);
+    min-height: 1.2em;
+  }
+  .score-note.checking {
+    background: linear-gradient(90deg, var(--muted) 0%, var(--text) 50%, var(--muted) 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: skel-shimmer 1.6s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .score-note.checking { animation: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
+  }
+
+  .section-failed {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0;
+  }
+
   .diagram-summary {
     margin-top: 1rem;
     font-size: 0.95rem;
