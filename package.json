@@ -15,7 +15,7 @@
     "express-rate-limit": "^7.5.1",
     "localize": "https://github.com/mstem/localize/releases/download/v1.0.0/localize-1.0.0.tgz",
     "morgan": "^1.12.1",
-    "resend": "^6.12.3"
+    "resend": "^6.27.0"
   },
   "overrides": {
     "qs": "^6.16.0"
