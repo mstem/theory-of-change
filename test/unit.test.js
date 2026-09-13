@@ -41,6 +41,7 @@ const {
   analyzePrompts,
   serializeStreams,
   parseStreams,
+  formatDuration,
 } = await import('../server.js');
 
 test.after(() => rmSync(TMP_CACHE_DIR, { recursive: true, force: true }));
@@ -1261,4 +1262,25 @@ test('a stream that carries no JSON parses as nothing rather than throwing', () 
 
 test('a stream wrapped in a code fence still parses', () => {
   assert.deepEqual(clientFn('parseStreamBuffer', '```json\n{"strength": 40}\n```'), { strength: 40 });
+});
+
+// ─── How long a call took ─────────────────────────────────────────────────────
+// The grounded call has been measured between 45 and 364 seconds, and four points
+// cannot tell a slow search backend from a slow theory. Every run logs its own
+// wall clock so the distribution builds itself rather than needing another probe.
+
+test('a duration reads in seconds to one decimal', () => {
+  assert.equal(formatDuration(44900), '44.9s');
+  assert.equal(formatDuration(364300), '364.3s');
+});
+
+test('a sub-second duration still reads as seconds', () => {
+  assert.equal(formatDuration(0), '0.0s');
+  assert.equal(formatDuration(940), '0.9s');
+});
+
+// A clock that jumps backwards mid-request would otherwise put a negative number
+// in the log and make the run look instant.
+test('a negative duration reads as zero rather than backwards', () => {
+  assert.equal(formatDuration(-5), '0.0s');
 });

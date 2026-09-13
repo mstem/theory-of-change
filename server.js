@@ -446,6 +446,13 @@ Then return ONLY valid JSON, with nothing after it. Always emit every key, writi
   return { frame, grounded };
 }
 
+// Wall clock per call, in the log line each call already writes. The grounded call
+// has been measured between 45 and 364 seconds on four runs, which is too wide a
+// spread to tune against, so every run from here reports its own figure.
+function formatDuration(ms) {
+  return `${Math.max(0, ms / 1000).toFixed(1)}s`;
+}
+
 // One cache entry holds both streams. Entries written before the split hold a
 // single undivided analysis, and replaying one as a frame would leave the evidence
 // sections on skeletons for good, so parseStreams reads them as a miss instead.
@@ -505,6 +512,7 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
   // searches are still running. The pair shares one reservation and settles once,
   // because settling twice against the same reservation would credit the day back
   // an estimate it was only charged for once.
+  const startedAt = Date.now();
   const text = { frame: '', grounded: '' };
   const complete = { frame: false, grounded: false };
   const finished = { frame: false, grounded: false };
@@ -519,7 +527,7 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
     // instantly and permanently as a page with a hole in it.
     if (complete.frame && complete.grounded) cacheSet(cacheKey, serializeStreams(text));
     else console.warn('analyze not cached: one of the two calls did not finish cleanly');
-    console.log(`analyze total: cost=$${billed.toFixed(4)}, spent_today=$${settleSpend(reservation, billed).toFixed(2)}/${DAILY_BUDGET_USD}`);
+    console.log(`analyze total: took=${formatDuration(Date.now() - startedAt)}, cost=$${billed.toFixed(4)}, spent_today=$${settleSpend(reservation, billed).toFixed(2)}/${DAILY_BUDGET_USD}`);
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
   }
@@ -550,6 +558,7 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
       complete[name] = isCompleteAnalysis(msg);
 
       const line = [
+        `took=${formatDuration(Date.now() - startedAt)}`,
         `stop_reason=${msg?.stop_reason}`,
         `in=${u.input_tokens ?? '?'}`,
         `out=${u.output_tokens ?? '?'}`,
@@ -988,4 +997,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, analyzePrompts, serializeStreams, parseStreams, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, reserveSpend, settleSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, analyzePrompts, serializeStreams, parseStreams, formatDuration, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, reserveSpend, settleSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
