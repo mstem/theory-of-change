@@ -604,10 +604,12 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
       // comes out of the same budget. Hitting the cap truncates the JSON, which the
       // page then repairs into a half analysis without saying so.
       max_tokens: 8192,
-      // The current search variant runs code execution under the hood, which is why
-      // code_execution must not also be declared here — two execution environments
-      // confuse the model. Step 3 of docs/PRD-evidence-freshness.md tunes the cap.
-      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: ANALYZE_SEARCH_MAX_USES }],
+      // The basic search variant, deliberately. 20260209 filters each result set by
+      // writing and running code, and the model can loop on that: a measured run made
+      // 8 code-execution passes for 3 searches and took 240s, where this variant took
+      // 22s on the same theory. Unfiltered results cost a few cents more per run.
+      // Step 3 of docs/PRD-evidence-freshness.md tunes the cap.
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: ANALYZE_SEARCH_MAX_USES }],
       // The bill here is not the searches, it is their results being read again on
       // every pass of the server-side tool loop. Web search writes its own cache
       // entry after each result block, but only once the request is caching at all,
