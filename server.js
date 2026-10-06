@@ -3,7 +3,7 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import Anthropic from '@anthropic-ai/sdk';
 import { Resend } from 'resend';
-import { detectFromRequest, bundleKey } from 'localize';
+import { detectFromRequest, bundleKey, countryFromTimeZone } from 'localize';
 import { getBundle, referenceBundle, REFERENCE_KEY, listBundles } from './lib/i18n.js';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
@@ -388,8 +388,46 @@ const analyzeLimiter = rateLimit({
 // seconds rather than behind the search phase. Both halves must always emit every
 // key they own: an absent key and one still streaming are the same null to the
 // progressive renderer, and either stalls every section after it.
-function analyzePrompts(action, change) {
-  const theory = `You are an expert in social change theory, history, and empirical research. Analyze this theory of change: "Doing '${action}' will create '${change}' in the world."`;
+// The visitor's country, from the time zone their browser reports. The site is
+// not behind an edge that adds a country header, and Accept-Language only says
+// which language someone reads, so the zone is the best signal there is. It comes
+// in the request body, so anything unexpected is treated as no country at all.
+const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+
+function visitorCountry(timeZone) {
+  if (typeof timeZone !== 'string' || !timeZone || timeZone.length > 64) return null;
+  const { country } = countryFromTimeZone(timeZone);
+  if (!country) return null;
+  return { code: country, name: regionNames.of(country), timeZone };
+}
+
+// Visitors with no detectable country keep the key format written before
+// countries existed, so entries already cached still answer them.
+function analyzeCacheKey(action, change, country) {
+  const key = `${action.toLowerCase().trim()}|||${change.toLowerCase().trim()}`;
+  return country ? `${key}|||${country.code}` : key;
+}
+
+// The basic search variant, deliberately. 20260209 filters each result set by
+// writing and running code, and the model can loop on that: a measured run made
+// 8 code-execution passes for 3 searches and took 240s, where this variant took
+// 22s on the same theory. Unfiltered results cost a few cents more per run.
+// user_location tilts what the search backend returns toward the visitor's
+// country, which the prompt alone cannot do.
+function groundedSearchTool(country) {
+  const tool = { type: 'web_search_20250305', name: 'web_search', max_uses: ANALYZE_SEARCH_MAX_USES };
+  if (country) tool.user_location = { type: 'approximate', country: country.code, timezone: country.timeZone };
+  return tool;
+}
+
+function analyzePrompts(action, change, country = null) {
+  // Local cases make a theory easier to act on, but a weaker local study must
+  // not displace a stronger one from elsewhere, so the instruction is a
+  // preference and says where it stops.
+  const place = country
+    ? `\n\nThe reader is in ${country.name}. Where the evidence allows, prefer research, cases and examples from ${country.name} or comparable countries, and say so when the strongest evidence comes from elsewhere. Never invent or stretch a local example to fit.`
+    : '';
+  const theory = `You are an expert in social change theory, history, and empirical research. Analyze this theory of change: "Doing '${action}' will create '${change}' in the world."${place}`;
 
   const scoring = `Score 70–100 as Strong if there is robust peer-reviewed evidence across multiple contexts; 40–69 as Moderate if evidence exists but is mixed or context-dependent; 10–39 as Weak if evidence is thin or contested; 0–9 as Speculative if there is little to no empirical basis.`;
 
@@ -487,7 +525,8 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
-  const cacheKey = `${action.toLowerCase().trim()}|||${change.toLowerCase().trim()}`;
+  const country = visitorCountry(req.body.timeZone);
+  const cacheKey = analyzeCacheKey(action, change, country);
   const cached = parseStreams(cacheGet(cacheKey) ?? '');
   if (cached) {
     res.write(`data: ${JSON.stringify({ chunk: cached.frame, s: 'frame' })}\n\n`);
@@ -506,7 +545,7 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  const prompts = analyzePrompts(action, change);
+  const prompts = analyzePrompts(action, change, country);
 
   // Both calls are in flight at once, so the page has the diagram while the
   // searches are still running. The pair shares one reservation and settles once,
@@ -527,7 +566,7 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
     // instantly and permanently as a page with a hole in it.
     if (complete.frame && complete.grounded) cacheSet(cacheKey, serializeStreams(text));
     else console.warn('analyze not cached: one of the two calls did not finish cleanly');
-    console.log(`analyze total: took=${formatDuration(Date.now() - startedAt)}, cost=$${billed.toFixed(4)}, spent_today=$${settleSpend(reservation, billed).toFixed(2)}/${DAILY_BUDGET_USD}`);
+    console.log(`analyze total: took=${formatDuration(Date.now() - startedAt)}, country=${country?.code ?? 'none'}, cost=$${billed.toFixed(4)}, spent_today=$${settleSpend(reservation, billed).toFixed(2)}/${DAILY_BUDGET_USD}`);
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
   }
@@ -604,12 +643,8 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
       // comes out of the same budget. Hitting the cap truncates the JSON, which the
       // page then repairs into a half analysis without saying so.
       max_tokens: 8192,
-      // The basic search variant, deliberately. 20260209 filters each result set by
-      // writing and running code, and the model can loop on that: a measured run made
-      // 8 code-execution passes for 3 searches and took 240s, where this variant took
-      // 22s on the same theory. Unfiltered results cost a few cents more per run.
       // Step 3 of docs/PRD-evidence-freshness.md tunes the cap.
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: ANALYZE_SEARCH_MAX_USES }],
+      tools: [groundedSearchTool(country)],
       // The bill here is not the searches, it is their results being read again on
       // every pass of the server-side tool loop. Web search writes its own cache
       // entry after each result block, but only once the request is caching at all,
@@ -999,4 +1034,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, analyzePrompts, serializeStreams, parseStreams, formatDuration, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, reserveSpend, settleSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, analyzePrompts, visitorCountry, analyzeCacheKey, groundedSearchTool, serializeStreams, parseStreams, formatDuration, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, reserveSpend, settleSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };

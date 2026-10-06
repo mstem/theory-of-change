@@ -42,6 +42,9 @@ const {
   serializeStreams,
   parseStreams,
   formatDuration,
+  visitorCountry,
+  analyzeCacheKey,
+  groundedSearchTool,
 } = await import('../server.js');
 
 test.after(() => rmSync(TMP_CACHE_DIR, { recursive: true, force: true }));
@@ -1283,4 +1286,67 @@ test('a sub-second duration still reads as seconds', () => {
 // in the log and make the run look instant.
 test('a negative duration reads as zero rather than backwards', () => {
   assert.equal(formatDuration(-5), '0.0s');
+});
+
+// ─── Visitor country ─────────────────────────────────────────────────────────
+// The site is not behind an edge that sends a country header, so the browser's
+// time zone is the signal. It arrives in the request body, so it is untrusted.
+
+test('a known time zone resolves to its country with an English name', () => {
+  assert.deepEqual(visitorCountry('Europe/Lisbon'), { code: 'PT', name: 'Portugal', timeZone: 'Europe/Lisbon' });
+});
+
+test('a legacy zone alias still resolves to the right country', () => {
+  assert.equal(visitorCountry('Asia/Calcutta')?.code, 'IN');
+});
+
+test('an unknown, empty, overlong or non-string time zone gives no country', () => {
+  for (const tz of ['Bogus/Zone', '', 'Europe/' + 'x'.repeat(100), 42, null, undefined, { tz: 'Europe/Lisbon' }]) {
+    assert.equal(visitorCountry(tz), null, `${JSON.stringify(tz)} should not resolve`);
+  }
+});
+
+test('both prompts name the visitor country when there is one', () => {
+  const { frame, grounded } = analyzePrompts('organising', 'less isolation', { code: 'PT', name: 'Portugal' });
+  assert.match(frame, /Portugal/);
+  assert.match(grounded, /Portugal/);
+});
+
+test('without a country neither prompt mentions one', () => {
+  const withNone = analyzePrompts('organising', 'less isolation');
+  const withNull = analyzePrompts('organising', 'less isolation', null);
+  assert.deepEqual(withNone, withNull);
+  assert.doesNotMatch(withNone.grounded, /The reader is in/);
+});
+
+// The country rides inside the prompt text, so it has to keep the JSON skeleton
+// intact: the section-key tests above read it off the end of each prompt.
+test('a country does not change the keys either prompt asks for', () => {
+  const plain = analyzePrompts('a', 'b');
+  const local = analyzePrompts('a', 'b', { code: 'PT', name: 'Portugal' });
+  assert.deepEqual(promptKeys(local.frame), promptKeys(plain.frame));
+  assert.deepEqual(promptKeys(local.grounded), promptKeys(plain.grounded));
+});
+
+// A visitor with no detectable country keeps the key format entries were written
+// under before countries existed, so the existing cache still answers them.
+test('the cache key is unchanged when there is no country', () => {
+  assert.equal(analyzeCacheKey(' Organising ', 'Less Isolation', null), 'organising|||less isolation');
+});
+
+test('the same theory from two countries is cached apart', () => {
+  const pt = analyzeCacheKey('organising', 'less isolation', { code: 'PT', name: 'Portugal' });
+  const fr = analyzeCacheKey('organising', 'less isolation', { code: 'FR', name: 'France' });
+  assert.notEqual(pt, fr);
+  assert.notEqual(pt, analyzeCacheKey('organising', 'less isolation', null));
+});
+
+test('the search tool is localised to the visitor when there is a country', () => {
+  const tool = groundedSearchTool({ code: 'PT', name: 'Portugal', timeZone: 'Europe/Lisbon' });
+  assert.equal(tool.type, 'web_search_20250305');
+  assert.deepEqual(tool.user_location, { type: 'approximate', country: 'PT', timezone: 'Europe/Lisbon' });
+});
+
+test('the search tool carries no location without a country', () => {
+  assert.equal('user_location' in groundedSearchTool(null), false);
 });
