@@ -1163,7 +1163,8 @@ async function analyze() {
     const res = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, change }),
+      // The server maps the zone to a country so results can lean local.
+      body: JSON.stringify({ action, change, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
     });
 
     if (!res.ok) {
