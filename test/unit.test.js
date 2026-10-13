@@ -1210,6 +1210,38 @@ function clientFn(name, ...args) {
   return new Function('console', 'args', `${body}\nreturn ${name}(...args);`)(console, args);
 }
 
+// The summary is shown one sentence per paragraph. A period inside an
+// abbreviation or a number is not the end of a sentence.
+test('the summary splits into its sentences', () => {
+  assert.deepEqual(clientFn('summarySentences', 'It works. It may not! Does it? Yes.'),
+    ['It works.', 'It may not!', 'Does it?', 'Yes.']);
+});
+
+test('an abbreviation does not end a sentence', () => {
+  const text = 'The strongest evidence concerns inaccuracies (e.g., AI Forensics 2024 tests), not their effect. Second point.';
+  assert.deepEqual(clientFn('summarySentences', text), [
+    'The strongest evidence concerns inaccuracies (e.g., AI Forensics 2024 tests), not their effect.',
+    'Second point.'
+  ]);
+  assert.deepEqual(clientFn('summarySentences', 'Seen in the U.S. and in Europe, i.e. Portugal. Done.'),
+    ['Seen in the U.S. and in Europe, i.e. Portugal.', 'Done.']);
+});
+
+test('a decimal does not end a sentence', () => {
+  assert.deepEqual(clientFn('summarySentences', 'Turnout rose 3.5 points. That is small.'),
+    ['Turnout rose 3.5 points.', 'That is small.']);
+});
+
+test('a sentence closing on a quote or bracket keeps it', () => {
+  assert.deepEqual(clientFn('summarySentences', 'They called it "informed." Others disagree (see below.) Fine.'),
+    ['They called it "informed."', 'Others disagree (see below.)', 'Fine.']);
+});
+
+test('text with no sentence ending comes back whole', () => {
+  assert.deepEqual(clientFn('summarySentences', 'no ending here'), ['no ending here']);
+  assert.deepEqual(clientFn('summarySentences', ''), []);
+});
+
 // A three-point drift between an estimate and a sourced score is noise. Saying so
 // out loud would teach readers to distrust a number that did not really change.
 test('a score that drifts a few points is not announced', () => {
