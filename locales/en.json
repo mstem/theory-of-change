@@ -41,7 +41,6 @@
   "summary.refresh": "Refresh findings",
   "score.unchecked": "Sources could not be checked, so this score is a first read.",
   "pushback.toggle": "Push back or refine",
-  "pushback.placeholder": "e.g., Recent surveys find many voters already ask chatbots how and where to vote.",
   "pushback.submit": "Re-run with this",
   "section.failed": "This section could not be loaded.",
   "history.heading": "Historical examples",

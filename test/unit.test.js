@@ -1415,6 +1415,23 @@ test('the grounded prompt asks for a summary written from its sources', () => {
   assert.doesNotMatch(analyzePrompts('a', 'b').frame, /"sourced_summary"/);
 });
 
+// The score swung 38 to 58 on identical input because the follow-up searches
+// landed on different links of the chain. One search per link pins that down.
+test('the grounded prompt plans one search per causal link', () => {
+  const { grounded, frame } = analyzePrompts('a', 'b');
+  assert.match(grounded, /first search on the first link and your second search on the second link/);
+  assert.doesNotMatch(grounded, /reserved for/);
+  assert.doesNotMatch(frame, /causal chain, not its topic/);
+});
+
+test('a place adds a local search on top of the plan', () => {
+  const { grounded } = analyzePrompts('a', 'b', { text: 'Portugal', code: 'PT' });
+  assert.match(grounded, /one more search reserved for Portugal/);
+  assert.equal(groundedSearchTool(null).max_uses, 3);
+  assert.equal(groundedSearchTool({ text: 'Portugal', code: 'PT' }).max_uses, 4);
+  assert.equal(groundedSearchTool({ text: 'Lisbon', code: null }).max_uses, 4);
+});
+
 // ─── Pushback ─────────────────────────────────────────────────────────────────
 
 test('a pushback is cached apart from the analysis it pushes back on', () => {
