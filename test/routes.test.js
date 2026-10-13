@@ -113,6 +113,39 @@ test('analyze rejects a pushback that is not a string', async () => {
   assert.equal(res.status, 400);
 });
 
+test('analyze rejects a place longer than 80 characters', async () => {
+  const res = await post('/api/analyze', { action: 'organising', change: 'less isolation', place: 'x'.repeat(81) });
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /place/);
+});
+
+test('analyze rejects a place that is not text', async () => {
+  const res = await post('/api/analyze', { action: 'organising', change: 'less isolation', place: { city: 'Lisbon' } });
+  assert.equal(res.status, 400);
+});
+
+test('analyze accepts a place within the limit', async () => {
+  // Stops at the missing-key check, which proves validation passed.
+  const res = await post('/api/analyze', { action: 'organising', change: 'less isolation', place: 'x'.repeat(80) });
+  assert.equal(res.status, 500);
+});
+
+// ─── GET /api/place-hint ──────────────────────────────────────────────────────
+
+test('place hint names the country for a time zone, in the page language', async () => {
+  const en = await (await fetch(`${BASE}/api/place-hint?tz=Europe/Lisbon&lang=en`)).json();
+  assert.deepEqual(en, { name: 'Portugal' });
+  const pt = await (await fetch(`${BASE}/api/place-hint?tz=Europe/Paris&lang=pt`)).json();
+  assert.deepEqual(pt, { name: 'França' });
+});
+
+test('place hint gives no name for an unknown zone or a bad language', async () => {
+  assert.deepEqual(await (await fetch(`${BASE}/api/place-hint?tz=Bogus/Zone`)).json(), { name: null });
+  const odd = await fetch(`${BASE}/api/place-hint?tz=Europe/Lisbon&lang=${'x'.repeat(40)}`);
+  assert.equal(odd.status, 200);
+  assert.deepEqual(await odd.json(), { name: 'Portugal' });
+});
+
 test('analyze accepts input at exactly the 200 character limit', async () => {
   // No API key is set, so a valid request stops at the config check (500)
   // rather than reaching the model. That 500 is what proves it passed validation.

@@ -38,13 +38,15 @@ function limitedHtml(value) {
     .split('&lt;/strong&gt;').join('</strong>');
 }
 
-const ENGLISH_HEADLINE = 'How will {X}\ncreate {Y}\nin the world?';
+const ENGLISH_HEADLINE = 'How will {X}\ncreate {Y}\nin {Z}?';
 const HEADLINE_MAX_LINES = 4;
 
 function headlineUsable(template) {
   return typeof template === 'string'
     && (template.match(/\{X\}/g) || []).length === 1
     && (template.match(/\{Y\}/g) || []).length === 1
+    // The place slot is optional: without it the page is global-only.
+    && (template.match(/\{Z\}/g) || []).length <= 1
     && template.split('\n').length <= HEADLINE_MAX_LINES;
 }
 
@@ -56,6 +58,7 @@ function renderHeadline() {
   const headline = document.getElementById('headline');
   const wrapX = document.getElementById('wrap-x');
   const wrapY = document.getElementById('wrap-y');
+  const wrapZ = document.getElementById('wrap-z');
   if (!headline || !wrapX || !wrapY) return;
 
   const word = (id, key) => {
@@ -78,12 +81,13 @@ function renderHeadline() {
   for (const line of template.split('\n')) {
     const lineEl = document.createElement('span');
     lineEl.className = 'line';
-    for (const part of line.split(/(\{X\}|\{Y\})/)) {
+    for (const part of line.split(/(\{X\}|\{Y\}|\{Z\})/)) {
       // appendChild moves the existing node rather than copying it, so each
       // field keeps its identity, its listeners, its blinking cursor and its
       // suggestion list. Rebuilding them would silently unbind the autocomplete.
       if (part === '{X}') lineEl.appendChild(wrapX);
       else if (part === '{Y}') lineEl.appendChild(wrapY);
+      else if (part === '{Z}' && wrapZ) lineEl.appendChild(wrapZ);
       else if (part) lineEl.appendChild(document.createTextNode(part));
     }
     fragment.appendChild(lineEl);
@@ -182,11 +186,15 @@ const Y_SUGGESTIONS = [
 ];
 
 // ─── Autocomplete ─────────────────────────────────────────────────────────────
-function setupAutocomplete(inputEl, sugEl, data) {
+// data is a list, or a function returning one for a list that fills in later.
+// blankValue is a default that counts as an empty query, so the whole list shows.
+function setupAutocomplete(inputEl, sugEl, source, { blankValue } = {}) {
   let activeIdx = -1;
+  const list = typeof source === 'function' ? source : () => source;
 
   function filter(q) {
-    if (!q.trim()) return data.slice(0, 8);
+    const data = list();
+    if (!q.trim() || q.trim() === blankValue) return data.slice(0, 8);
     const lq = q.toLowerCase();
     return data.filter(s => s.toLowerCase().includes(lq)).slice(0, 8);
   }
@@ -238,6 +246,13 @@ function setupAutocomplete(inputEl, sugEl, data) {
 
   inputEl.addEventListener('blur', () => setTimeout(close, 150));
 
+  // Re-show the list when its contents arrive after the field took focus.
+  function refresh() {
+    if (document.activeElement !== inputEl) return;
+    const v = fieldValue(inputEl);
+    render(filter(v), v.trim() === blankValue ? '' : v);
+  }
+
   inputEl.addEventListener('keydown', e => {
     const items = sugEl.querySelectorAll('li');
     if (e.key === 'ArrowDown') {
@@ -257,6 +272,8 @@ function setupAutocomplete(inputEl, sugEl, data) {
       close();
     }
   });
+
+  return { refresh };
 }
 
 // Contenteditable helpers — keep an .value-like API to minimise downstream churn.
@@ -330,6 +347,57 @@ function checkReady() {
 
 fieldX.addEventListener('input', checkReady);
 fieldY.addEventListener('input', checkReady);
+
+// ─── Place ────────────────────────────────────────────────────────────────────
+// "the world" is the third field. Left alone the analysis is global; the
+// visitor's country is offered only as a suggestion, never applied unasked.
+const fieldZ = document.getElementById('field-z');
+const sugZ   = document.getElementById('sug-z');
+const WORLD  = t('headline.worldDefault') || 'the world';
+let placeHint = null;
+let placeHintAsked = false;
+let analyzedPlace = '';
+
+// Empty for a global analysis. A translation whose headline has no place slot
+// leaves the field out of the page, which also means global.
+function placeValue() {
+  if (!fieldZ || !fieldZ.isConnected) return '';
+  const v = fieldValue(fieldZ).trim();
+  return v.toLowerCase() === WORLD.toLowerCase() ? '' : v;
+}
+function setPlace(v) {
+  if (!fieldZ) return;
+  setFieldValue(fieldZ, v || WORLD);
+  updateField(fieldZ);
+}
+
+if (fieldZ && sugZ) {
+  setPlace('');
+  const placeList = () => (placeHint && placeHint.toLowerCase() !== WORLD.toLowerCase() ? [placeHint, WORLD] : [WORLD]);
+  const placeAutocomplete = setupAutocomplete(fieldZ, sugZ, placeList, { blankValue: WORLD });
+
+  fieldZ.addEventListener('focus', () => {
+    // Selecting the default means typing replaces it rather than appending.
+    if (!placeValue()) {
+      setTimeout(() => {
+        const range = document.createRange();
+        range.selectNodeContents(fieldZ);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }, 0);
+    }
+    if (placeHintAsked) return;
+    placeHintAsked = true;
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    const params = new URLSearchParams({ tz, lang: I18N.locale.tag || 'en' });
+    fetch(`/api/place-hint?${params}`)
+      .then((res) => (res.ok ? res.json() : { name: null }))
+      .then(({ name }) => { placeHint = name || null; placeAutocomplete.refresh(); })
+      .catch(() => {});
+  });
+  fieldZ.addEventListener('blur', () => { if (!fieldValue(fieldZ).trim()) setPlace(''); });
+}
 
 
 // ─── Strength colours ─────────────────────────────────────────────────────────
@@ -701,7 +769,9 @@ function renderHistorySection(examples) {
 }
 
 function renderQuestionsSection(questions, action, change) {
-  const worksheetKey = `toc:${action}:${change}`;
+  // A global analysis keeps the key answers were saved under before places
+  // existed, so they still load.
+  const worksheetKey = analyzedPlace ? `toc:${action}:${change}:${analyzedPlace}` : `toc:${action}:${change}`;
   const saved = JSON.parse(localStorage.getItem(worksheetKey) || '{}');
   const qEl = document.getElementById('questions-list');
   qEl.innerHTML = (questions || []).slice(0, 3).map((q, i) => `
@@ -1150,6 +1220,8 @@ async function analyze(clarification = '') {
   const action = fieldValue(fieldX).trim();
   const change = fieldValue(fieldY).trim();
   if (!action || !change) return;
+  const place = placeValue();
+  analyzedPlace = place;
 
   document.getElementById('error-banner').hidden = true;
   document.getElementById('hero').classList.add('shrunk');
@@ -1182,8 +1254,7 @@ async function analyze(clarification = '') {
     const res = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // The server maps the zone to a country so results can lean local.
-      body: JSON.stringify({ action, change, clarification, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+      body: JSON.stringify({ action, change, place, clarification }),
     });
 
     if (!res.ok) {
@@ -1333,13 +1404,14 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   document.getElementById('results').classList.remove('visible');
   setFieldValue(fieldX, ''); setFieldValue(fieldY, '');
   updateField(fieldX); updateField(fieldY);
+  setPlace('');
   btn.disabled = true;
   resetProgressiveState();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
 // Enter submits; Shift+Enter inserts a newline (default textarea behavior)
-[fieldX, fieldY].forEach(f => f.addEventListener('keydown', e => {
+[fieldX, fieldY, fieldZ].filter(Boolean).forEach(f => f.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     if (!btn.disabled) analyze();
@@ -1522,6 +1594,7 @@ function buildShareUrl() {
   const a = fieldValue(fieldX).trim();
   const c = fieldValue(fieldY).trim();
   const params = new URLSearchParams({ a, c });
+  if (analyzedPlace) params.set('p', analyzedPlace);
   return `${location.origin}${location.pathname}?${params.toString()}`;
 }
 
@@ -1598,6 +1671,7 @@ if (typeof navigator.share === 'function') {
   setFieldValue(fieldY, c);
   updateField(fieldX);
   updateField(fieldY);
+  setPlace((params.get('p') || '').trim());
   checkReady();
   // Run after the current tick so all other DOMContentLoaded handlers settle.
   setTimeout(() => { if (!btn.disabled) analyze(); }, 0);
