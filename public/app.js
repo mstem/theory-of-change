@@ -583,17 +583,30 @@ function truncate(str, max) {
 
 // ─── Render results ───────────────────────────────────────────────────────────
 // Per-section renderers — each is idempotent (safe to call twice with same data).
+// A sentence ends at . ! or ? followed by a space and a capital. That alone keeps
+// "e.g., AI" and "3.5" whole; the abbreviation check covers the cases where a
+// capital does follow, like "the U.S. and" or "e.g. Portugal".
+function summarySentences(text) {
+  const abbreviation = /(?:\b(?:e\.g|i\.e|etc|vs|cf|al|Dr|Mr|Mrs|Ms|St|U\.S|U\.K)|\b[A-Z])\.$/;
+  const boundary = /[.!?]+["'\u201d)\]]*\s+(?=["'\u201c(\[]?[A-Z0-9])/g;
+  const sentences = [];
+  let start = 0;
+  let m;
+  while ((m = boundary.exec(text))) {
+    const end = m.index + m[0].length;
+    if (abbreviation.test(text.slice(start, end).trimEnd())) continue;
+    sentences.push(text.slice(start, end).trim());
+    start = end;
+  }
+  sentences.push(text.slice(start).trim());
+  return sentences.filter(Boolean);
+}
+
 function renderDiagramSection(data, action, change) {
   const color = strengthColor(data.strength_label);
-  // Split the summary into one paragraph per sentence so each idea breathes.
-  // Regex captures runs ending in . ! or ? (incl. ellipses); falls back to
-  // whole string if no sentence-terminator is found.
   const sourced = typeof data.sourced_summary === 'string' ? data.sourced_summary.trim() : '';
-  const summaryText = (_summaryRefreshed && sourced) || data.summary || '';
-  const sentences = summaryText.match(/[^.!?]+[.!?]+["')\]]*\s*/g) || [summaryText];
-  const summaryHtml = sentences
-    .map(s => s.trim())
-    .filter(Boolean)
+  // One paragraph per sentence so each idea breathes.
+  const summaryHtml = summarySentences((_summaryRefreshed && sourced) || data.summary || '')
     .map(s => `<p>${escapeHtml(s)}</p>`)
     .join('');
 
