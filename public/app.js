@@ -604,8 +604,9 @@ function summarySentences(text) {
 
 function renderDiagramSection(data, action, change) {
   const color = strengthColor(data.strength_label);
+  const sourced = typeof data.sourced_summary === 'string' ? data.sourced_summary.trim() : '';
   // One paragraph per sentence so each idea breathes.
-  const summaryHtml = summarySentences(data.summary || '')
+  const summaryHtml = summarySentences((_summaryRefreshed && sourced) || data.summary || '')
     .map(s => `<p>${escapeHtml(s)}</p>`)
     .join('');
 
@@ -616,9 +617,23 @@ function renderDiagramSection(data, action, change) {
       <span class="strength-dot" style="background:${color}"></span>
       <span style="color:${color}">${escapeHtml(strengthLabelText(data.strength_label))}</span>
     </div>
-    <div class="diagram-summary">${summaryHtml}</div>
+    <div class="diagram-summary">
+      ${_summaryRefreshed ? '' : `<span class="summary-flash">${escapeHtml(t('summary.flash') || 'Flash estimate')}</span>`}
+      ${summaryHtml}
+    </div>
+    ${sourced && !_summaryRefreshed ? `
+      <div class="summary-refresh">
+        <span>${escapeHtml(t('summary.refreshReady') || 'Findings from the sources are ready.')}</span>
+        <button type="button" class="summary-refresh-btn" id="summary-refresh-btn">${escapeHtml(t('summary.refresh') || 'Refresh findings')}</button>
+      </div>` : ''}
     <div class="score-note" id="score-note"></div>
+    <p class="score-caveat">${escapeHtml(t('score.caveat') || 'Scores are estimates and can shift from one run to the next. This tool is here to help you reflect on your theory of change, not to judge it.')}</p>
   `;
+  const refreshBtn = document.getElementById('summary-refresh-btn');
+  if (refreshBtn) refreshBtn.addEventListener('click', () => {
+    _summaryRefreshed = true;
+    renderDiagramSection(data, action, change);
+  });
   renderScoreNote();
 }
 
@@ -640,14 +655,15 @@ function renderScoreNote() {
     return;
   }
   if (_scoreState.before) {
-    const reading = (d) => `${d.strength} ${strengthLabelText(d.strength_label)}`;
     el.className = 'score-note';
-    el.textContent = t('score.moved', { before: reading(_scoreState.before), after: reading(_partialData) })
-      || `First read: ${reading(_scoreState.before)}. After checking sources: ${reading(_partialData)}.`;
+    el.textContent = t('score.moved', { before: _scoreState.before.strength, after: _partialData.strength })
+      || `${_partialData.strength}% strength. Before reading sources we estimated ${_scoreState.before.strength}%.`;
     return;
   }
   el.className = 'score-note';
-  el.textContent = '';
+  el.textContent = typeof _partialData.strength === 'number'
+    ? (t('score.settled', { score: _partialData.strength }) || `${_partialData.strength}% strength.`)
+    : '';
 }
 
 // Whether a reader would notice the difference between the first estimate and the
@@ -862,7 +878,7 @@ const FRAME_SECTIONS = [
 ];
 const GROUNDED_SECTIONS = [
   'strength', 'strength_label',
-  'evidence_for', 'evidence_against', 'historical_examples'
+  'evidence_for', 'evidence_against', 'historical_examples', 'sourced_summary'
 ];
 
 let _renderedSections = new Set();
@@ -871,6 +887,10 @@ let _partialData = {};
 // without its label would put a Weak score behind a Moderate badge for a moment.
 let _groundedScore = {};
 let _scoreState = { settled: false, unchecked: false, before: null };
+// The summary is written before any source is read. The grounded call writes one
+// from its sources, and the reader swaps it in by choice: replacing text under
+// someone who is reading it is worse than leaving the first draft up.
+let _summaryRefreshed = false;
 
 let _shownQueries = -1;
 
@@ -879,6 +899,7 @@ function resetProgressiveState() {
   _partialData = {};
   _groundedScore = {};
   _scoreState = { settled: false, unchecked: false, before: null };
+  _summaryRefreshed = false;
   _shownQueries = -1;
   const queries = document.getElementById('loading-queries');
   if (queries) queries.innerHTML = '';
@@ -1009,6 +1030,11 @@ function renderStreamedSection(key, value, stream, action, change) {
   if (key === 'evidence_for') { renderEvidenceColumn('evidence-for', _partialData.evidence_for); return true; }
   if (key === 'evidence_against') { renderEvidenceColumn('evidence-against', _partialData.evidence_against); return true; }
   if (key === 'historical_examples') { renderHistorySection(_partialData.historical_examples); return true; }
+  if (key === 'sourced_summary') {
+    if (!('summary' in _partialData)) return false;
+    renderDiagramSection(_partialData, action, change);
+    return true;
+  }
   return false;
 }
 
@@ -1213,9 +1239,22 @@ function parseJSON(str) {
 }
 
 // ─── Analyze ──────────────────────────────────────────────────────────────────
-btn.addEventListener('click', analyze);
+btn.addEventListener('click', () => analyze());
 
-async function analyze() {
+// A pushback reruns the same theory with the reader's note attached. It is offered
+// once: a second note on top of the first would need both carried into the prompt.
+const pushbackEl = document.getElementById('pushback');
+const pushbackForm = document.getElementById('pushback-form');
+const pushbackText = document.getElementById('pushback-text');
+
+pushbackForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const note = pushbackText.value.trim();
+  if (!note) return;
+  analyze(note);
+});
+
+async function analyze(clarification = '') {
   const action = fieldValue(fieldX).trim();
   const change = fieldValue(fieldY).trim();
   if (!action || !change) return;
@@ -1227,6 +1266,11 @@ async function analyze() {
   document.getElementById('results').classList.remove('visible');
   document.getElementById('loading').classList.add('visible');
   btn.disabled = true;
+  pushbackEl.hidden = true;
+  if (!clarification) {
+    pushbackEl.open = false;
+    pushbackText.value = '';
+  }
   resetProgressiveState();
   injectSkeletons();
   scrollPastHero('loading');
@@ -1248,7 +1292,7 @@ async function analyze() {
     const res = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, change, place }),
+      body: JSON.stringify({ action, change, place, clarification }),
     });
 
     if (!res.ok) {
@@ -1314,6 +1358,8 @@ async function analyze() {
             if (groundedData) renderGroundedSections(groundedData);
             renderScoreNote();
             reveal();
+            pushbackEl.open = false;
+            pushbackEl.hidden = Boolean(clarification);
             scheduleRelatedCategories(data, action, change);
           }
         }

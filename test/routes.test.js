@@ -102,6 +102,17 @@ test('analyze rejects input longer than 200 characters', async () => {
   assert.match((await res.json()).error, /200 characters or fewer/);
 });
 
+test('analyze rejects a pushback longer than 500 characters', async () => {
+  const res = await post('/api/analyze', { action: 'ok', change: 'ok', clarification: 'a'.repeat(501) });
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /500 characters or fewer/);
+});
+
+test('analyze rejects a pushback that is not a string', async () => {
+  const res = await post('/api/analyze', { action: 'ok', change: 'ok', clarification: ['x'] });
+  assert.equal(res.status, 400);
+});
+
 test('analyze rejects a place longer than 80 characters', async () => {
   const res = await post('/api/analyze', { action: 'organising', change: 'less isolation', place: 'x'.repeat(81) });
   assert.equal(res.status, 400);

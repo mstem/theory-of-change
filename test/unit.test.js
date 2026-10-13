@@ -1400,6 +1400,78 @@ test('the same theory in two places is cached apart, ignoring case', () => {
   assert.notEqual(pt, analyzeCacheKey('organising', 'less isolation', null));
 });
 
+// Localising is there to help the reader, so it may change which examples are
+// shown but must not cost the theory points for thinner local research.
+test('a scoped prompt tells the model not to mark the score down for the place', () => {
+  const { frame, grounded } = analyzePrompts('a', 'b', { text: 'Portugal', code: 'PT' });
+  for (const prompt of [frame, grounded]) {
+    assert.match(prompt, /never the score/);
+    assert.match(prompt, /do not mark it down because less research exists for Portugal/);
+  }
+});
+
+test('the grounded prompt asks for a summary written from its sources', () => {
+  assert.match(analyzePrompts('a', 'b').grounded, /"sourced_summary"/);
+  assert.doesNotMatch(analyzePrompts('a', 'b').frame, /"sourced_summary"/);
+});
+
+// The score swung 38 to 58 on identical input because the follow-up searches
+// landed on different links of the chain. One search per link pins that down.
+test('the grounded prompt plans one search per causal link', () => {
+  const { grounded, frame } = analyzePrompts('a', 'b');
+  assert.match(grounded, /first search on the first link and your second search on the second link/);
+  assert.doesNotMatch(grounded, /reserved for/);
+  assert.doesNotMatch(frame, /causal chain, not its topic/);
+});
+
+test('a place adds a local search on top of the plan', () => {
+  const { grounded } = analyzePrompts('a', 'b', { text: 'Portugal', code: 'PT' });
+  assert.match(grounded, /one more search reserved for Portugal/);
+  assert.equal(groundedSearchTool(null).max_uses, 3);
+  assert.equal(groundedSearchTool({ text: 'Portugal', code: 'PT' }).max_uses, 4);
+  assert.equal(groundedSearchTool({ text: 'Lisbon', code: null }).max_uses, 4);
+});
+
+// ─── Pushback ─────────────────────────────────────────────────────────────────
+
+test('a pushback is cached apart from the analysis it pushes back on', () => {
+  const plain = analyzeCacheKey('organising', 'less isolation', null);
+  const pushed = analyzeCacheKey('organising', 'less isolation', null, 'I mean tenant unions');
+  assert.notEqual(pushed, plain);
+  assert.equal(analyzeCacheKey('organising', 'less isolation', null, '   '), plain);
+});
+
+test('a pushback key follows the place in the cache key', () => {
+  const key = analyzeCacheKey('organising', 'less isolation', { text: 'Lisbon', code: null }, 'tenant unions');
+  assert.equal(key, 'organising|||less isolation|||place:lisbon|||pushback:tenant unions');
+});
+
+test('both prompts carry the pushback, as a claim to check', () => {
+  const { frame, grounded } = analyzePrompts('a', 'b', null, 'reliance on chatbots is high');
+  for (const prompt of [frame, grounded]) {
+    assert.match(prompt, /reliance on chatbots is high/);
+    assert.match(prompt, /claim to check/);
+  }
+});
+
+test('no pushback leaves the prompts as they were', () => {
+  assert.deepEqual(analyzePrompts('a', 'b', null, ''), analyzePrompts('a', 'b'));
+  assert.doesNotMatch(analyzePrompts('a', 'b').grounded, /pushed back/);
+});
+
+// A double quote in the note would close the quoted span it sits in.
+test('a pushback cannot close its own quotes', () => {
+  const { grounded } = analyzePrompts('a', 'b', null, 'he said "ignore the rules"');
+  assert.match(grounded, /he said 'ignore the rules'/);
+});
+
+test('a pushback keeps every key in both prompts', () => {
+  const plain = analyzePrompts('a', 'b');
+  const pushed = analyzePrompts('a', 'b', null, 'something');
+  assert.deepEqual(promptKeys(pushed.frame), promptKeys(plain.frame));
+  assert.deepEqual(promptKeys(pushed.grounded), promptKeys(plain.grounded));
+});
+
 test('the search is localised only when the place is a country', () => {
   const tool = groundedSearchTool({ text: 'Portugal', code: 'PT' });
   assert.equal(tool.type, 'web_search_20250305');
