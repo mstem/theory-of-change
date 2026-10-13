@@ -135,6 +135,12 @@
 
   .field-wrap.x { color: var(--x-color); }
   .field-wrap.y { color: var(--y-color); }
+  /* The place is optional and defaults to global, so it keeps the headline's
+     ink colour and a lighter underline rather than taking a third accent. */
+  .field-wrap.z .field {
+    text-decoration-style: dotted;
+    text-decoration-thickness: 2px;
+  }
 
   .headline .accent-y { color: var(--y-color); }
 
@@ -1550,6 +1556,9 @@
       ></span><span class="field-word" id="word-y">change</span>
       <ul class="suggestions" id="sug-y" role="listbox"></ul>
     </span>
+    <!-- No whitespace inside this wrap: it sits directly before the "?" and any
+         space here would render as a gap before the question mark. -->
+    <span class="field-wrap z" id="wrap-z"><span class="field" id="field-z" contenteditable="plaintext-only" spellcheck="false">the world</span><ul class="suggestions" id="sug-z" role="listbox"></ul></span>
   </h1>
 
   <div class="cta-wrap">

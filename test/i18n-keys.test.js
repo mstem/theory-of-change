@@ -144,14 +144,15 @@ test('the headline template in the bundle is one the renderer accepts', () => {
   const template = bundle['headline.template'];
   assert.equal((template.match(/\{X\}/g) || []).length, 1);
   assert.equal((template.match(/\{Y\}/g) || []).length, 1);
+  assert.equal((template.match(/\{Z\}/g) || []).length, 1);
   assert.ok(template.split('\n').length <= 4);
 });
 
-test('the markup still holds the two slots the renderer moves', () => {
+test('the markup still holds the three slots the renderer moves', () => {
   // renderHeadline relocates these rather than rebuilding them, which is what
   // keeps the autocomplete and the blinking cursor bound. Renaming either id
   // would silently leave the headline empty.
-  for (const id of ['headline', 'wrap-x', 'wrap-y', 'word-x', 'word-y', 'field-x', 'field-y']) {
+  for (const id of ['headline', 'wrap-x', 'wrap-y', 'wrap-z', 'word-x', 'word-y', 'field-x', 'field-y', 'field-z']) {
     assert.ok(markup.includes(`id="${id}"`), `#${id} should still be in the markup`);
   }
 });
