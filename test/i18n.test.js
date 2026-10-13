@@ -83,6 +83,14 @@ test('a headline template that would drop an input field is rejected', () => {
   }
 });
 
+// The place slot is optional: a translation that has not placed it yet keeps
+// working as a global-only page instead of falling back to English.
+test('a headline template may hold one place slot or none, never two', () => {
+  assert.deepEqual(headlineProblems('How will {X}\ncreate {Y}\nin {Z}?'), []);
+  assert.deepEqual(headlineProblems('How will {X}\ncreate {Y}\nin the world?'), []);
+  assert.match(headlineProblems('{X} {Y} {Z} {Z}').join(' '), /at most one \{Z\}, found 2/);
+});
+
 test('a headline template with too many lines is rejected', () => {
   const tooMany = ['a {X}', 'b {Y}', 'c', 'd', 'e'].join('\n');
   assert.match(headlineProblems(tooMany).join(' '), /5 lines, at most 4/);
