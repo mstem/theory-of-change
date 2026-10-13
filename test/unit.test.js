@@ -1341,6 +1341,41 @@ test('the same theory from two countries is cached apart', () => {
   assert.notEqual(pt, analyzeCacheKey('organising', 'less isolation', null));
 });
 
+// ─── Pushback ─────────────────────────────────────────────────────────────────
+
+test('a pushback is cached apart from the analysis it pushes back on', () => {
+  const plain = analyzeCacheKey('organising', 'less isolation', null);
+  const pushed = analyzeCacheKey('organising', 'less isolation', null, 'I mean tenant unions');
+  assert.notEqual(pushed, plain);
+  assert.equal(analyzeCacheKey('organising', 'less isolation', null, '   '), plain);
+});
+
+test('both prompts carry the pushback, as a claim to check', () => {
+  const { frame, grounded } = analyzePrompts('a', 'b', null, 'reliance on chatbots is high');
+  for (const prompt of [frame, grounded]) {
+    assert.match(prompt, /reliance on chatbots is high/);
+    assert.match(prompt, /claim to check/);
+  }
+});
+
+test('no pushback leaves the prompts as they were', () => {
+  assert.deepEqual(analyzePrompts('a', 'b', null, ''), analyzePrompts('a', 'b'));
+  assert.doesNotMatch(analyzePrompts('a', 'b').grounded, /pushed back/);
+});
+
+// A double quote in the note would close the quoted span it sits in.
+test('a pushback cannot close its own quotes', () => {
+  const { grounded } = analyzePrompts('a', 'b', null, 'he said "ignore the rules"');
+  assert.match(grounded, /he said 'ignore the rules'/);
+});
+
+test('a pushback keeps every key in both prompts', () => {
+  const plain = analyzePrompts('a', 'b');
+  const pushed = analyzePrompts('a', 'b', null, 'something');
+  assert.deepEqual(promptKeys(pushed.frame), promptKeys(plain.frame));
+  assert.deepEqual(promptKeys(pushed.grounded), promptKeys(plain.grounded));
+});
+
 test('the search tool is localised to the visitor when there is a country', () => {
   const tool = groundedSearchTool({ code: 'PT', name: 'Portugal', timeZone: 'Europe/Lisbon' });
   assert.equal(tool.type, 'web_search_20250305');

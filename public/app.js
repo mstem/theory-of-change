@@ -559,14 +559,15 @@ function renderScoreNote() {
     return;
   }
   if (_scoreState.before) {
-    const reading = (d) => `${d.strength} ${strengthLabelText(d.strength_label)}`;
     el.className = 'score-note';
-    el.textContent = t('score.moved', { before: reading(_scoreState.before), after: reading(_partialData) })
-      || `First read: ${reading(_scoreState.before)}. After checking sources: ${reading(_partialData)}.`;
+    el.textContent = t('score.moved', { before: _scoreState.before.strength, after: _partialData.strength })
+      || `${_partialData.strength}% strength. Before reading sources we estimated ${_scoreState.before.strength}%.`;
     return;
   }
   el.className = 'score-note';
-  el.textContent = '';
+  el.textContent = typeof _partialData.strength === 'number'
+    ? (t('score.settled', { score: _partialData.strength }) || `${_partialData.strength}% strength.`)
+    : '';
 }
 
 // Whether a reader would notice the difference between the first estimate and the
@@ -1130,9 +1131,22 @@ function parseJSON(str) {
 }
 
 // ─── Analyze ──────────────────────────────────────────────────────────────────
-btn.addEventListener('click', analyze);
+btn.addEventListener('click', () => analyze());
 
-async function analyze() {
+// A pushback reruns the same theory with the reader's note attached. It is offered
+// once: a second note on top of the first would need both carried into the prompt.
+const pushbackEl = document.getElementById('pushback');
+const pushbackForm = document.getElementById('pushback-form');
+const pushbackText = document.getElementById('pushback-text');
+
+pushbackForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const note = pushbackText.value.trim();
+  if (!note) return;
+  analyze(note);
+});
+
+async function analyze(clarification = '') {
   const action = fieldValue(fieldX).trim();
   const change = fieldValue(fieldY).trim();
   if (!action || !change) return;
@@ -1142,6 +1156,11 @@ async function analyze() {
   document.getElementById('results').classList.remove('visible');
   document.getElementById('loading').classList.add('visible');
   btn.disabled = true;
+  pushbackEl.hidden = true;
+  if (!clarification) {
+    pushbackEl.open = false;
+    pushbackText.value = '';
+  }
   resetProgressiveState();
   injectSkeletons();
   scrollPastHero('loading');
@@ -1164,7 +1183,7 @@ async function analyze() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // The server maps the zone to a country so results can lean local.
-      body: JSON.stringify({ action, change, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+      body: JSON.stringify({ action, change, clarification, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
     });
 
     if (!res.ok) {
@@ -1230,6 +1249,7 @@ async function analyze() {
             if (groundedData) renderGroundedSections(groundedData);
             renderScoreNote();
             reveal();
+            pushbackEl.hidden = Boolean(clarification);
             scheduleRelatedCategories(data, action, change);
           }
         }

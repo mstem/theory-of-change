@@ -1076,6 +1076,7 @@
     .loading,
     .results-actions,
     .feedback,
+    .pushback,
     .results-footer,
     .evens-footer,
     .suggestions,
@@ -1109,6 +1110,26 @@
   }
 
   /* ─── Feedback ───────────────────────────────────── */
+  .pushback {
+    margin: -0.5rem 0 1.5rem;
+  }
+
+  .pushback summary {
+    display: inline-block;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .pushback summary::-webkit-details-marker { display: none; }
+  .pushback summary:hover { color: var(--text); }
+
+  .pushback-form { margin-top: 0.75rem; }
+
+  .pushback-form textarea.feedback-field { min-height: 0; }
+
   .feedback {
     background: var(--card);
     border: 1px solid var(--border);
@@ -1588,6 +1609,22 @@
 
   <!-- Visualization -->
   <div class="diagram-wrap" id="diagram"></div>
+
+  <details class="pushback" id="pushback" hidden>
+    <summary data-i18n="pushback.toggle">Push back on this analysis</summary>
+    <form class="pushback-form" id="pushback-form" novalidate>
+      <textarea
+        class="feedback-field"
+        id="pushback-text"
+        rows="2"
+        maxlength="500"
+        required
+        data-i18n-attr="placeholder:pushback.placeholder"
+        placeholder="e.g., Recent surveys find many voters already ask chatbots how and where to vote."
+      ></textarea>
+      <button type="submit" class="feedback-btn" data-i18n="pushback.submit">Re-run with this</button>
+    </form>
+  </details>
 
   <!-- Mechanisms -->
   <div class="mechanisms" id="mechanisms-wrap">

@@ -102,6 +102,17 @@ test('analyze rejects input longer than 200 characters', async () => {
   assert.match((await res.json()).error, /200 characters or fewer/);
 });
 
+test('analyze rejects a pushback longer than 500 characters', async () => {
+  const res = await post('/api/analyze', { action: 'ok', change: 'ok', clarification: 'a'.repeat(501) });
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /500 characters or fewer/);
+});
+
+test('analyze rejects a pushback that is not a string', async () => {
+  const res = await post('/api/analyze', { action: 'ok', change: 'ok', clarification: ['x'] });
+  assert.equal(res.status, 400);
+});
+
 test('analyze accepts input at exactly the 200 character limit', async () => {
   // No API key is set, so a valid request stops at the config check (500)
   // rather than reaching the model. That 500 is what proves it passed validation.
