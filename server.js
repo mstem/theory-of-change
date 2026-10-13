@@ -635,7 +635,7 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
     // instantly and permanently as a page with a hole in it.
     if (complete.frame && complete.grounded) cacheSet(cacheKey, serializeStreams(text));
     else console.warn('analyze not cached: one of the two calls did not finish cleanly');
-    console.log(`analyze total: took=${formatDuration(Date.now() - startedAt)}, place=${scope ? JSON.stringify(scope.text) : 'none'}, cost=$${billed.toFixed(4)}, spent_today=$${settleSpend(reservation, billed).toFixed(2)}/${DAILY_BUDGET_USD}`);
+    console.log(`analyze total: took=${formatDuration(Date.now() - startedAt)}, place=${scope ? (scope.code ?? 'custom') : 'none'}, cost=$${billed.toFixed(4)}, spent_today=$${settleSpend(reservation, billed).toFixed(2)}/${DAILY_BUDGET_USD}`);
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
   }
