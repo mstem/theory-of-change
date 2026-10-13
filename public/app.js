@@ -1320,6 +1320,7 @@ async function analyze(clarification = '') {
             if (groundedData) renderGroundedSections(groundedData);
             renderScoreNote();
             reveal();
+            pushbackEl.open = false;
             pushbackEl.hidden = Boolean(clarification);
             scheduleRelatedCategories(data, action, change);
           }

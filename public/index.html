@@ -1118,6 +1118,7 @@
   /* ─── Feedback ───────────────────────────────────── */
   .pushback {
     margin: -0.5rem 0 1.5rem;
+    text-align: center;
   }
 
   .pushback summary {
@@ -1132,7 +1133,10 @@
   .pushback summary::-webkit-details-marker { display: none; }
   .pushback summary:hover { color: var(--text); }
 
-  .pushback-form { margin-top: 0.75rem; }
+  .pushback-form {
+    max-width: 560px;
+    margin: 0.75rem auto 0;
+  }
 
   .pushback-form textarea.feedback-field { min-height: 0; }
 
@@ -1620,7 +1624,7 @@
   <div class="diagram-wrap" id="diagram"></div>
 
   <details class="pushback" id="pushback" hidden>
-    <summary data-i18n="pushback.toggle">Push back on this analysis</summary>
+    <summary data-i18n="pushback.toggle">Push back or refine</summary>
     <form class="pushback-form" id="pushback-form" novalidate>
       <textarea
         class="feedback-field"
