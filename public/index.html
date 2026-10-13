@@ -396,6 +396,48 @@
 
   .diagram-summary p + p { margin-top: 0.8rem; }
 
+  .summary-flash {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.4rem;
+  }
+
+  .summary-refresh {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin: 1rem auto 0;
+    font-size: 0.85rem;
+    color: var(--text);
+  }
+
+  .summary-refresh-btn {
+    font: inherit;
+    font-weight: 600;
+    color: var(--text);
+    background: #fff;
+    border: 1.5px solid var(--text);
+    border-radius: 8px;
+    padding: 0.35rem 0.9rem;
+    cursor: pointer;
+  }
+
+  .summary-refresh-btn:hover { background: var(--text); color: #fff; }
+
+  .score-caveat {
+    max-width: 520px;
+    margin: 0.5rem auto 0;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+
   /* ─── Mechanisms ──────────────────────────────────── */
   .mechanisms {
     background: var(--card);
@@ -1083,6 +1125,7 @@
     .results-actions,
     .feedback,
     .pushback,
+    .summary-refresh,
     .results-footer,
     .evens-footer,
     .suggestions,

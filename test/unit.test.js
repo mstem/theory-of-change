@@ -1368,6 +1368,21 @@ test('the same theory in two places is cached apart, ignoring case', () => {
   assert.notEqual(pt, analyzeCacheKey('organising', 'less isolation', null));
 });
 
+// Localising is there to help the reader, so it may change which examples are
+// shown but must not cost the theory points for thinner local research.
+test('a scoped prompt tells the model not to mark the score down for the place', () => {
+  const { frame, grounded } = analyzePrompts('a', 'b', { text: 'Portugal', code: 'PT' });
+  for (const prompt of [frame, grounded]) {
+    assert.match(prompt, /never the score/);
+    assert.match(prompt, /do not mark it down because less research exists for Portugal/);
+  }
+});
+
+test('the grounded prompt asks for a summary written from its sources', () => {
+  assert.match(analyzePrompts('a', 'b').grounded, /"sourced_summary"/);
+  assert.doesNotMatch(analyzePrompts('a', 'b').frame, /"sourced_summary"/);
+});
+
 // ─── Pushback ─────────────────────────────────────────────────────────────────
 
 test('a pushback is cached apart from the analysis it pushes back on', () => {

@@ -453,7 +453,7 @@ function analyzePrompts(action, change, scope = null, clarification = '') {
   // preference and says where it stops.
   const where = scope ? scope.text : 'the world';
   const focus = scope
-    ? `\n\nThe reader has scoped this theory to ${scope.text}. Where the evidence allows, prefer research, cases and examples from ${scope.text} or comparable places, and say so when the strongest evidence comes from elsewhere. Never invent or stretch a local example to fit.`
+    ? `\n\nThe reader has scoped this theory to ${scope.text}. Where the evidence allows, prefer research, cases and examples from ${scope.text} or comparable places, and say so when the strongest evidence comes from elsewhere. Never invent or stretch a local example to fit. The place decides which examples you show, never the score: score the theory on all the evidence wherever it was gathered, and do not mark it down because less research exists for ${scope.text}.`
     : '';
   // The reader's pushback corrects the framing, but a reader can be wrong about a
   // fact too, so a claim in it is checked like any other rather than adopted.
@@ -512,7 +512,8 @@ Then return ONLY valid JSON, with nothing after it. Always emit every key, writi
   "strength_label": "<Strong | Moderate | Weak | Speculative>",
   "evidence_for": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>", "as_of": "<4-digit year the finding is from>"}, ...0 to 3],
   "evidence_against": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>", "as_of": "<4-digit year the finding is from>"}, ...0 to 3],
-  "historical_examples": [{"name": "<movement>", "period": "<dates>", "outcome": "<1 sentence>", "relevance": "<1 sentence>"}, ...x3]
+  "historical_examples": [{"name": "<movement>", "period": "<dates>", "outcome": "<1 sentence>", "relevance": "<1 sentence>"}, ...x3],
+  "sourced_summary": "<2 short sentences, 60 words at most, on what the sources you read found about this theory. If they show that a premise people commonly hold about it is out of date, such as how widely a tool or practice is used today, state what they show instead.>"
 }`;
 
   return { frame, grounded };

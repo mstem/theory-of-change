@@ -588,7 +588,8 @@ function renderDiagramSection(data, action, change) {
   // Split the summary into one paragraph per sentence so each idea breathes.
   // Regex captures runs ending in . ! or ? (incl. ellipses); falls back to
   // whole string if no sentence-terminator is found.
-  const summaryText = data.summary || '';
+  const sourced = typeof data.sourced_summary === 'string' ? data.sourced_summary.trim() : '';
+  const summaryText = (_summaryRefreshed && sourced) || data.summary || '';
   const sentences = summaryText.match(/[^.!?]+[.!?]+["')\]]*\s*/g) || [summaryText];
   const summaryHtml = sentences
     .map(s => s.trim())
@@ -603,9 +604,23 @@ function renderDiagramSection(data, action, change) {
       <span class="strength-dot" style="background:${color}"></span>
       <span style="color:${color}">${escapeHtml(strengthLabelText(data.strength_label))}</span>
     </div>
-    <div class="diagram-summary">${summaryHtml}</div>
+    <div class="diagram-summary">
+      ${_summaryRefreshed ? '' : `<span class="summary-flash">${escapeHtml(t('summary.flash') || 'Flash estimate')}</span>`}
+      ${summaryHtml}
+    </div>
+    ${sourced && !_summaryRefreshed ? `
+      <div class="summary-refresh">
+        <span>${escapeHtml(t('summary.refreshReady') || 'Findings from the sources are ready.')}</span>
+        <button type="button" class="summary-refresh-btn" id="summary-refresh-btn">${escapeHtml(t('summary.refresh') || 'Refresh findings')}</button>
+      </div>` : ''}
     <div class="score-note" id="score-note"></div>
+    <p class="score-caveat">${escapeHtml(t('score.caveat') || 'Scores are estimates and can shift from one run to the next. This tool is here to help you reflect on your theory of change, not to judge it.')}</p>
   `;
+  const refreshBtn = document.getElementById('summary-refresh-btn');
+  if (refreshBtn) refreshBtn.addEventListener('click', () => {
+    _summaryRefreshed = true;
+    renderDiagramSection(data, action, change);
+  });
   renderScoreNote();
 }
 
@@ -850,7 +865,7 @@ const FRAME_SECTIONS = [
 ];
 const GROUNDED_SECTIONS = [
   'strength', 'strength_label',
-  'evidence_for', 'evidence_against', 'historical_examples'
+  'evidence_for', 'evidence_against', 'historical_examples', 'sourced_summary'
 ];
 
 let _renderedSections = new Set();
@@ -859,6 +874,10 @@ let _partialData = {};
 // without its label would put a Weak score behind a Moderate badge for a moment.
 let _groundedScore = {};
 let _scoreState = { settled: false, unchecked: false, before: null };
+// The summary is written before any source is read. The grounded call writes one
+// from its sources, and the reader swaps it in by choice: replacing text under
+// someone who is reading it is worse than leaving the first draft up.
+let _summaryRefreshed = false;
 
 let _shownQueries = -1;
 
@@ -867,6 +886,7 @@ function resetProgressiveState() {
   _partialData = {};
   _groundedScore = {};
   _scoreState = { settled: false, unchecked: false, before: null };
+  _summaryRefreshed = false;
   _shownQueries = -1;
   const queries = document.getElementById('loading-queries');
   if (queries) queries.innerHTML = '';
@@ -997,6 +1017,11 @@ function renderStreamedSection(key, value, stream, action, change) {
   if (key === 'evidence_for') { renderEvidenceColumn('evidence-for', _partialData.evidence_for); return true; }
   if (key === 'evidence_against') { renderEvidenceColumn('evidence-against', _partialData.evidence_against); return true; }
   if (key === 'historical_examples') { renderHistorySection(_partialData.historical_examples); return true; }
+  if (key === 'sourced_summary') {
+    if (!('summary' in _partialData)) return false;
+    renderDiagramSection(_partialData, action, change);
+    return true;
+  }
   return false;
 }
 
