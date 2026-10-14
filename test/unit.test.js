@@ -1246,6 +1246,27 @@ test('a sentence closing on a quote or bracket keeps it', () => {
     ['They called it "informed."', 'Others disagree (see below.)', 'Fine.']);
 });
 
+test('a sentence can start with an accented capital', () => {
+  assert.deepEqual(clientFn('summarySentences', 'Funciona. É limitado.'), ['Funciona.', 'É limitado.']);
+});
+
+test('a sentence can end on a single capital letter', () => {
+  assert.deepEqual(clientFn('summarySentences', 'It needs a Plan B. Others disagree.'), ['It needs a Plan B.', 'Others disagree.']);
+  assert.deepEqual(clientFn('summarySentences', 'Rich in vitamin D. Second point.'), ['Rich in vitamin D.', 'Second point.']);
+});
+
+// The label has to clear on its own when no better summary is coming, or an
+// analysis cached before sourced summaries existed keeps it forever.
+test('the flash label shows while a sourced summary is pending or waiting', () => {
+  assert.equal(clientFn('flashLabelShown', '', false, false), true);
+  assert.equal(clientFn('flashLabelShown', 'From sources.', false, true), true);
+});
+
+test('the flash label clears once refreshed or when no sourced summary came', () => {
+  assert.equal(clientFn('flashLabelShown', 'From sources.', true, true), false);
+  assert.equal(clientFn('flashLabelShown', '', false, true), false);
+});
+
 test('text with no sentence ending comes back whole', () => {
   assert.deepEqual(clientFn('summarySentences', 'no ending here'), ['no ending here']);
   assert.deepEqual(clientFn('summarySentences', ''), []);
