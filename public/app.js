@@ -923,6 +923,7 @@ function resetProgressiveState() {
   _scoreState = { settled: false, unchecked: false, before: null };
   _summaryRefreshed = false;
   _shownQueries = -1;
+  _relatedStarted = false;
   const queries = document.getElementById('loading-queries');
   if (queries) queries.innerHTML = '';
 }
@@ -1046,7 +1047,13 @@ function renderStreamedSection(key, value, stream, action, change) {
     renderDiagramSection(_partialData, action, change);
     return true;
   }
-  if (key === 'mechanisms') { renderMechanismsSection(_partialData.mechanisms); return true; }
+  if (key === 'mechanisms') {
+    renderMechanismsSection(_partialData.mechanisms);
+    // Summary and mechanisms are all the matcher reads, so it can start here
+    // rather than wait for the grounded call to finish.
+    scheduleRelatedCategories(_partialData, action, change);
+    return true;
+  }
   if (key === 'assumptions') { renderAssumptionsSection(_partialData.assumptions); return true; }
   if (key === 'probing_questions') { renderQuestionsSection(_partialData.probing_questions, action, change); return true; }
   if (key === 'evidence_for') { renderEvidenceColumn('evidence-for', _partialData.evidence_for); return true; }
@@ -1399,7 +1406,8 @@ async function analyze(clarification = '', { keepNote = false, notice = '' } = {
             pushbackEl.open = keepNote;
             pushbackEl.hidden = Boolean(clarification);
             if (!clarification) shownTheory = { action, change, place };
-            scheduleRelatedCategories(data, action, change);
+            // Only when the frame call never got as far as its mechanisms.
+            if (!_relatedStarted) scheduleRelatedCategories(data, action, change);
           }
         }
       }
@@ -1560,10 +1568,11 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   feedbackStatus.className = 'feedback-status';
 });
 
-// ─── Related CTFG categories (lazy-loaded recommendation widget) ──────────────
-let _relatedObserver = null;
-let _relatedInputText = null;
-let _relatedFetched = false;
+// ─── Related CTFG categories (recommendation widget) ──────────────────────────
+let _relatedStarted = false;
+// Bumped per request and on reset, so a slow answer for an earlier theory never
+// lands under the current one.
+let _relatedRequest = 0;
 
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, m =>
@@ -1574,44 +1583,21 @@ function scheduleRelatedCategories(data, action, change) {
   const section = document.getElementById('related-categories');
   const grid = document.getElementById('related-categories-grid');
   if (!section || !grid) return;
+  _relatedStarted = true;
 
-  // Reset per-submission state
-  _relatedFetched = false;
   grid.innerHTML = `<div class="related-skeleton">${escapeHtml(t('related.loading') || 'Looking for related work…')}</div>`;
   section.hidden = false;
 
   // Build input text: action + change + summary + mechanisms only
   // (evidence/assumptions add noise without improving category match quality)
   const parts = [action, change, data.summary, ...(Array.isArray(data.mechanisms) ? data.mechanisms : [])];
-  _relatedInputText = parts.filter(Boolean).join('\n').slice(0, 5000);
-
-  // Lazy-fetch: trigger when section scrolls near viewport
-  if (typeof IntersectionObserver === 'undefined') {
-    // Old browser fallback: fetch immediately
-    fetchRelatedCategories(_relatedInputText);
-    return;
-  }
-  if (!_relatedObserver) {
-    _relatedObserver = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting && !_relatedFetched && _relatedInputText) {
-          _relatedFetched = true;
-          fetchRelatedCategories(_relatedInputText);
-        }
-      }
-    }, { rootMargin: '200px' });
-    _relatedObserver.observe(section);
-  } else if (!_relatedFetched && _relatedInputText) {
-    // On re-submission, observer is already firing for elements in view —
-    // force-check by re-observing
-    _relatedObserver.unobserve(section);
-    _relatedObserver.observe(section);
-  }
+  fetchRelatedCategories(parts.filter(Boolean).join('\n').slice(0, 5000));
 }
 
 async function fetchRelatedCategories(text) {
   const section = document.getElementById('related-categories');
   const grid = document.getElementById('related-categories-grid');
+  const request = ++_relatedRequest;
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 25000);
@@ -1624,6 +1610,7 @@ async function fetchRelatedCategories(text) {
     clearTimeout(timeoutId);
     if (!res.ok) throw new Error('http ' + res.status);
     const payload = await res.json();
+    if (request !== _relatedRequest) return;
     const items = [
       ...(Array.isArray(payload.categories)  ? payload.categories  : []),
       ...(Array.isArray(payload.issues)       ? payload.issues      : []),
@@ -1648,6 +1635,7 @@ async function fetchRelatedCategories(text) {
     }).join('');
   } catch (err) {
     console.warn('related-categories: fetch failed', err);
+    if (request !== _relatedRequest) return;
     section.hidden = true;
     grid.innerHTML = '';
   }
@@ -1659,8 +1647,7 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   const grid = document.getElementById('related-categories-grid');
   if (section) section.hidden = true;
   if (grid) grid.innerHTML = '';
-  _relatedFetched = false;
-  _relatedInputText = null;
+  _relatedRequest++;
 });
 
 // ─── Print + Share ───────────────────────────────────────────────────────────
