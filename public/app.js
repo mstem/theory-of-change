@@ -583,12 +583,14 @@ function truncate(str, max) {
 
 // ─── Render results ───────────────────────────────────────────────────────────
 // Per-section renderers — each is idempotent (safe to call twice with same data).
-// A sentence ends at . ! or ? followed by a space and a capital. That alone keeps
-// "e.g., AI" and "3.5" whole; the abbreviation check covers the cases where a
-// capital does follow, like "the U.S. and" or "e.g. Portugal".
+// A sentence ends at . ! or ? followed by a space and a capital in any script, so
+// "É limitado" starts one. That alone keeps "e.g., AI" and "3.5" whole; the
+// abbreviation check covers the cases where a capital does follow, like "the U.S.
+// and" or "e.g. Portugal". A lone capital such as "Plan B." ends a sentence: a
+// middle initial is rarer in a summary than a sentence ending on a letter.
 function summarySentences(text) {
-  const abbreviation = /(?:\b(?:e\.g|i\.e|etc|vs|cf|al|Dr|Mr|Mrs|Ms|St|U\.S|U\.K)|\b[A-Z])\.$/;
-  const boundary = /[.!?]+["'\u201d)\]]*\s+(?=["'\u201c(\[]?[A-Z0-9])/g;
+  const abbreviation = /\b(?:e\.g|i\.e|etc|vs|cf|al|Dr|Mr|Mrs|Ms|St|U\.S|U\.K)\.$/;
+  const boundary = /[.!?]+["'\u201d)\]]*\s+(?=["'\u201c(\[]?[\p{Lu}\p{N}])/gu;
   const sentences = [];
   let start = 0;
   let m;
@@ -600,6 +602,14 @@ function summarySentences(text) {
   }
   sentences.push(text.slice(start).trim());
   return sentences.filter(Boolean);
+}
+
+// The label marks a summary written before any source was read, for as long as a
+// better one is still coming or is waiting to be swapped in. Once the sources are
+// done and wrote none, there is nothing to swap to and the label would never clear.
+function flashLabelShown(sourced, refreshed, settled) {
+  if (refreshed) return false;
+  return Boolean(sourced) || !settled;
 }
 
 function renderDiagramSection(data, action, change) {
@@ -618,7 +628,7 @@ function renderDiagramSection(data, action, change) {
       <span style="color:${color}">${escapeHtml(strengthLabelText(data.strength_label))}</span>
     </div>
     <div class="diagram-summary">
-      ${_summaryRefreshed ? '' : `<span class="summary-flash">${escapeHtml(t('summary.flash') || 'Flash estimate')}</span>`}
+      ${!flashLabelShown(sourced, _summaryRefreshed, _scoreState.settled) ? '' : `<span class="summary-flash">${escapeHtml(t('summary.flash') || 'Flash estimate')}</span>`}
       ${summaryHtml}
     </div>
     ${sourced && !_summaryRefreshed ? `
@@ -627,7 +637,7 @@ function renderDiagramSection(data, action, change) {
         <button type="button" class="summary-refresh-btn" id="summary-refresh-btn">${escapeHtml(t('summary.refresh') || 'Refresh findings')}</button>
       </div>` : ''}
     <div class="score-note" id="score-note"></div>
-    <p class="score-caveat">${escapeHtml(t('score.caveat') || 'Scores are estimates and can shift from one run to the next. This tool is here to help you reflect on your theory of change, not to judge it.')}</p>
+    <p class="score-caveat">${escapeHtml(t('score.caveat') || 'Scores are estimates and can shift from one run to the next. This tool is only here to help you reflect on your theory of change.')}</p>
   `;
   const refreshBtn = document.getElementById('summary-refresh-btn');
   if (refreshBtn) refreshBtn.addEventListener('click', () => {
@@ -1259,14 +1269,23 @@ const pushbackEl = document.getElementById('pushback');
 const pushbackForm = document.getElementById('pushback-form');
 const pushbackText = document.getElementById('pushback-text');
 
+// The theory on screen, which a pushback is about. The fields can be edited after
+// a run, and a note sent with the edited text would be about a theory nobody saw.
+let shownTheory = null;
+
 pushbackForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const note = pushbackText.value.trim();
-  if (!note) return;
+  if (!note || !shownTheory) return;
+  setFieldValue(fieldX, shownTheory.action); updateField(fieldX);
+  setFieldValue(fieldY, shownTheory.change); updateField(fieldY);
+  setPlace(shownTheory.place);
   analyze(note);
 });
 
-async function analyze(clarification = '') {
+// keepNote is set when a failed pushback brings the original analysis back, so
+// the reader's note is still there to retry.
+async function analyze(clarification = '', { keepNote = false, notice = '' } = {}) {
   const action = fieldValue(fieldX).trim();
   const change = fieldValue(fieldY).trim();
   if (!action || !change) return;
@@ -1274,12 +1293,13 @@ async function analyze(clarification = '') {
   analyzedPlace = place;
 
   document.getElementById('error-banner').hidden = true;
+  if (notice) showErrorBanner(notice);
   document.getElementById('hero').classList.add('shrunk');
   document.getElementById('results').classList.remove('visible');
   document.getElementById('loading').classList.add('visible');
   btn.disabled = true;
   pushbackEl.hidden = true;
-  if (!clarification) {
+  if (!clarification && !keepNote) {
     pushbackEl.open = false;
     pushbackText.value = '';
   }
@@ -1364,14 +1384,21 @@ async function analyze(clarification = '') {
             }
 
             const data = mergeAnalysis(frameData, groundedData);
+            // The note reads its number from here, and the badge reads it from data.
+            // If the grounded score never streamed in on its own, the two would differ.
+            if ('strength' in data && 'strength_label' in data) {
+              _partialData.strength = data.strength;
+              _partialData.strength_label = data.strength_label;
+            }
             // Final safety pass, idempotent, and only over what actually arrived.
             if ('strength' in data && 'strength_label' in data) renderDiagramSection(data, action, change);
             if (frameData) renderFrameSections(frameData, action, change);
             if (groundedData) renderGroundedSections(groundedData);
             renderScoreNote();
             reveal();
-            pushbackEl.open = false;
+            pushbackEl.open = keepNote;
             pushbackEl.hidden = Boolean(clarification);
+            if (!clarification) shownTheory = { action, change, place };
             scheduleRelatedCategories(data, action, change);
           }
         }
@@ -1393,6 +1420,12 @@ async function analyze(clarification = '') {
       : /input stream|network|fetch|failed to fetch/i.test(err.message)
         ? 'The connection was interrupted. Please check your network and try again.'
         : 'Something went wrong. Please try again.';
+    // The original analysis is cached, so asking for it again puts the page back
+    // as it was, free, with the note kept for another try.
+    if (clarification) {
+      analyze('', { keepNote: true, notice: msg });
+      return;
+    }
     showErrorBanner(msg);
     btn.disabled = false;
     document.getElementById('hero').classList.remove('shrunk');
