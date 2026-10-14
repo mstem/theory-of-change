@@ -1121,6 +1121,15 @@ test('the grounded prompt carries every key the grounded call owns', () => {
   }
 });
 
+// A history card names its source so the reader can follow it, the same way an
+// evidence card does. Without the field there is nothing for the lookup to resolve.
+test('each historical example asks for the source it came from', () => {
+  const { grounded } = analyzePrompts('organising', 'less isolation');
+  const shape = grounded.match(/"historical_examples": \[\{[^\]]*\}/);
+  assert.ok(shape, 'historical_examples shape not found');
+  assert.match(shape[0], /"source":/);
+});
+
 // The whole point of the split. A frame call that searches is a frame call that
 // takes a minute, and the reader is back to watching an empty page.
 test('the frame prompt never tells the model to search', () => {

@@ -778,6 +778,18 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+// Same markup as an evidence card's source line, so the shared click handler
+// resolves it. Analyses cached before examples carried a source render without one.
+function historySource(h) {
+  const source = String(h.source || '').trim();
+  if (!source) return '';
+  const context = `${h.name || ''} — ${h.outcome || ''}`;
+  return `
+        <div class="evidence-source tl-source">
+          <span class="source-name">${escapeHtml(source)}</span><span class="source-sep"> · </span><button type="button" class="source-lookup" data-source="${escapeHtml(source)}" data-context="${escapeHtml(context)}">source</button>
+        </div>`;
+}
+
 function renderHistorySection(examples) {
   const sorted = (examples || []).slice().sort((a, b) => extractYear(a.period) - extractYear(b.period));
   const items = sorted.map(h => `
@@ -788,7 +800,7 @@ function renderHistorySection(examples) {
       <div class="tl-card">
         <div class="tl-name">${escapeHtml(h.name)}</div>
         <div class="tl-outcome">${escapeHtml(h.outcome)}</div>
-        <div class="tl-relevance">${escapeHtml(h.relevance)}</div>
+        <div class="tl-relevance">${escapeHtml(h.relevance)}</div>${historySource(h)}
       </div>
     </div>
   `);

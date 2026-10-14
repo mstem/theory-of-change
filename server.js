@@ -521,7 +521,7 @@ Then return ONLY valid JSON, with nothing after it. Always emit every key, writi
   "strength_label": "<Strong | Moderate | Weak | Speculative>",
   "evidence_for": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>", "as_of": "<4-digit year the finding is from>"}, ...0 to 3],
   "evidence_against": [{"title": "<short>", "description": "<1-2 sentences>", "source": "<name>", "as_of": "<4-digit year the finding is from>"}, ...0 to 3],
-  "historical_examples": [{"name": "<movement>", "period": "<dates>", "outcome": "<1 sentence>", "relevance": "<1 sentence>"}, ...x3],
+  "historical_examples": [{"name": "<movement>", "period": "<dates>", "outcome": "<1 sentence>", "relevance": "<1 sentence>", "source": "<the study, report or article you read it in>"}, ...x3],
   "sourced_summary": "<2 short sentences, 60 words at most, on what the sources you read found about this theory. If they show that a premise people commonly hold about it is out of date, such as how widely a tool or practice is used today, state what they show instead.>"
 }`;
 
