@@ -213,3 +213,17 @@ test('every key in the reference bundle is used somewhere in the page', () => {
     assert.ok(value.length > 0, `${key} should not be empty`);
   }
 });
+
+// A committed translation that misses a key is refused whole and the page
+// falls back to English, with nothing but a server warning to show for it.
+// Adding an English string without its translations has to fail here instead.
+test('every committed translation passes validation', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const { REPO_LOCALES } = await import('../lib/i18n.js');
+  const files = readdirSync(REPO_LOCALES).filter(f => /^[a-z]{2,8}(-[A-Z][a-z]{3})?\.json$/.test(f) && f !== `${REFERENCE_KEY}.json`);
+  assert.ok(files.length > 0, 'no committed translations found');
+  for (const file of files) {
+    const bundle = JSON.parse(readFileSync(join(REPO_LOCALES, file), 'utf8'));
+    assert.deepEqual(validateBundle(bundle), [], `${file} is not usable`);
+  }
+});
