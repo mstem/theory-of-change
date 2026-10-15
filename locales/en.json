@@ -23,6 +23,7 @@
   "results.reset": "Try another theory",
   "results.savePdf": "Save as PDF",
   "results.share": "Share",
+  "results.language": "Language of the analysis",
   "results.found": "We found evidence, examples, and hard questions",
   "mechanisms.heading": "How this could work — the causal chain",
   "assumptions.heading": "Hidden assumptions this theory rests on",

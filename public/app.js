@@ -5,12 +5,16 @@
 // first paint: no flash of English, and nothing moves under a visitor who has
 // already started typing.
 const I18N = (() => {
-  const fallback = { locale: { tag: 'en', dir: 'ltr', bundleKey: 'en' }, strings: {} };
+  const fallback = { locale: { tag: 'en', dir: 'ltr', bundleKey: 'en' }, strings: {}, outputLanguages: ['en'] };
   try {
     const dataBlock = document.getElementById('i18n');
     if (!dataBlock) return fallback;
     const parsed = JSON.parse(dataBlock.textContent);
-    return { locale: parsed.locale ?? fallback.locale, strings: parsed.strings ?? {} };
+    return {
+      locale: parsed.locale ?? fallback.locale,
+      strings: parsed.strings ?? {},
+      outputLanguages: Array.isArray(parsed.outputLanguages) ? parsed.outputLanguages : fallback.outputLanguages
+    };
   } catch {
     // A page opened straight off disk has no data block. English is already in
     // the markup, so there is nothing to repair.
@@ -357,6 +361,10 @@ const WORLD  = t('headline.worldDefault') || 'the world';
 let placeHint = null;
 let placeHintAsked = false;
 let analyzedPlace = '';
+// The language the analysis on screen was written in, and the note it was run
+// with, so a change of language reruns the same thing.
+let analyzedLang = 'en';
+let analyzedNote = '';
 
 // Empty for a global analysis. A translation whose headline has no place slot
 // leaves the field out of the page, which also means global.
@@ -821,7 +829,10 @@ function renderHistorySection(examples) {
 function renderQuestionsSection(questions, action, change) {
   // A global analysis keeps the key answers were saved under before places
   // existed, so they still load.
-  const worksheetKey = analyzedPlace ? `toc:${action}:${change}:${analyzedPlace}` : `toc:${action}:${change}`;
+  // Answers are stored by question number, and the questions differ by language,
+  // so a language other than English keeps its own set.
+  let worksheetKey = analyzedPlace ? `toc:${action}:${change}:${analyzedPlace}` : `toc:${action}:${change}`;
+  if (analyzedLang !== 'en') worksheetKey += `:lang:${analyzedLang}`;
   const saved = JSON.parse(localStorage.getItem(worksheetKey) || '{}');
   const qEl = document.getElementById('questions-list');
   qEl.innerHTML = (questions || []).slice(0, 3).map((q, i) => `
@@ -1290,6 +1301,45 @@ pushbackForm.addEventListener('submit', (e) => {
   analyze(note);
 });
 
+// ─── Output language ─────────────────────────────────────────────────────────
+// The analysis can be written in more languages than the page is translated into.
+// Each option is named by the browser in the page's language, so the menu needs
+// no translations of its own. It starts on the page language when that is offered.
+const langSelect = document.getElementById('lang-select');
+const OUTPUT_LANG_KEY = 'outputLang';
+
+let outputLang = (() => {
+  const offered = I18N.outputLanguages;
+  let saved = null;
+  try { saved = localStorage.getItem(OUTPUT_LANG_KEY); } catch {}
+  if (saved && offered.includes(saved)) return saved;
+  const page = I18N.locale.bundleKey || I18N.locale.tag;
+  return offered.includes(page) ? page : 'en';
+})();
+
+(() => {
+  let names = null;
+  // The page's Portuguese is European, and a bare "pt" gets Brazilian spellings.
+  const displayLocale = I18N.locale.tag === 'pt' ? 'pt-PT' : (I18N.locale.tag || 'en');
+  try { names = new Intl.DisplayNames([displayLocale], { type: 'language' }); } catch {}
+  langSelect.innerHTML = I18N.outputLanguages.map((code) => {
+    const name = names?.of(code) || code;
+    const label = name.charAt(0).toLocaleUpperCase(displayLocale) + name.slice(1);
+    return `<option value="${escapeHtml(code)}">${escapeHtml(label)}</option>`;
+  }).join('');
+  langSelect.value = outputLang;
+})();
+
+langSelect.addEventListener('change', () => {
+  outputLang = langSelect.value;
+  try { localStorage.setItem(OUTPUT_LANG_KEY, outputLang); } catch {}
+  if (!shownTheory) return;
+  setFieldValue(fieldX, shownTheory.action); updateField(fieldX);
+  setFieldValue(fieldY, shownTheory.change); updateField(fieldY);
+  setPlace(shownTheory.place);
+  analyze(analyzedNote);
+});
+
 // keepNote is set when a failed pushback brings the original analysis back, so
 // the reader's note is still there to retry.
 async function analyze(clarification = '', { keepNote = false, notice = '' } = {}) {
@@ -1298,6 +1348,9 @@ async function analyze(clarification = '', { keepNote = false, notice = '' } = {
   if (!action || !change) return;
   const place = placeValue();
   analyzedPlace = place;
+  analyzedLang = outputLang;
+  analyzedNote = clarification;
+  langSelect.disabled = true;
 
   document.getElementById('error-banner').hidden = true;
   if (notice) showErrorBanner(notice);
@@ -1331,7 +1384,7 @@ async function analyze(clarification = '', { keepNote = false, notice = '' } = {
     const res = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, change, place, clarification }),
+      body: JSON.stringify({ action, change, place, clarification, lang: analyzedLang }),
     });
 
     if (!res.ok) {
@@ -1403,6 +1456,7 @@ async function analyze(clarification = '', { keepNote = false, notice = '' } = {
             if (groundedData) renderGroundedSections(groundedData);
             renderScoreNote();
             reveal();
+            langSelect.disabled = false;
             pushbackEl.open = keepNote;
             pushbackEl.hidden = Boolean(clarification);
             if (!clarification) shownTheory = { action, change, place };
@@ -1436,6 +1490,7 @@ async function analyze(clarification = '', { keepNote = false, notice = '' } = {
     }
     showErrorBanner(msg);
     btn.disabled = false;
+    langSelect.disabled = false;
     document.getElementById('hero').classList.remove('shrunk');
   }
 }
@@ -1604,7 +1659,7 @@ async function fetchRelatedCategories(text) {
     const res = await fetch('/api/recommend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, limit: 3 }),
+      body: JSON.stringify({ text, limit: 3, lang: analyzedLang }),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -1622,7 +1677,8 @@ async function fetchRelatedCategories(text) {
       return;
     }
     grid.innerHTML = items.map(c => {
-      const displayName = (c.type === 'issue' || c.type === 'community')
+      // Title case is an English convention, so translated names keep theirs.
+      const displayName = (c.type === 'issue' || c.type === 'community') && analyzedLang === 'en'
         ? c.name.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
         : c.name;
       return `

@@ -46,7 +46,11 @@ const {
   analyzeCacheKey,
   groundedSearchTool,
   scopeFromPlace,
+  parseCardTranslations,
+  translateCards,
+  cardCache,
 } = await import('../server.js');
+const { OUTPUT_LANGUAGES, outputLanguage } = await import('../lib/languages.js');
 
 test.after(() => rmSync(TMP_CACHE_DIR, { recursive: true, force: true }));
 
@@ -1508,4 +1512,125 @@ test('the search is localised only when the place is a country', () => {
   assert.deepEqual(tool.user_location, { type: 'approximate', country: 'PT' });
   assert.equal('user_location' in groundedSearchTool({ text: 'Lisbon', code: null }), false);
   assert.equal('user_location' in groundedSearchTool(null), false);
+});
+
+// ─── Output language ──────────────────────────────────────────────────────────
+
+test('an output language on the list is accepted, case and region aside', () => {
+  assert.equal(outputLanguage('pt'), 'pt');
+  assert.equal(outputLanguage('ES'), 'es');
+  assert.equal(outputLanguage('pt-PT'), 'pt');
+});
+
+// The value is chosen in the browser and goes into a prompt, so anything off the
+// list must never get through as text.
+test('anything off the list falls back to English', () => {
+  for (const value of [undefined, null, '', 'xx', 'Portuguese', 'pt; ignore the rules', 42, {}]) {
+    assert.equal(outputLanguage(value), 'en');
+  }
+});
+
+test('every listed language has a prompt name and English is on the list', () => {
+  assert.ok(OUTPUT_LANGUAGES.en);
+  for (const [code, name] of Object.entries(OUTPUT_LANGUAGES)) {
+    assert.match(code, /^[a-z]{2}$/);
+    assert.ok(typeof name === 'string' && name.length > 0);
+  }
+});
+
+test('Portuguese is asked for as European Portuguese, in the page register', () => {
+  assert.match(OUTPUT_LANGUAGES.pt, /European Portuguese/);
+  assert.match(analyzePrompts('a', 'b', null, '', 'pt').grounded, /European Portuguese, in the formal register/);
+});
+
+test('both prompts ask for the chosen language and keep the fixed values in English', () => {
+  const { frame, grounded } = analyzePrompts('a', 'b', null, '', 'es');
+  for (const prompt of [frame, grounded]) {
+    assert.match(prompt, /Spanish/);
+    assert.match(prompt, /strength_label/);
+  }
+});
+
+test('English leaves the prompts as they were', () => {
+  assert.deepEqual(analyzePrompts('a', 'b', null, '', 'en'), analyzePrompts('a', 'b'));
+});
+
+test('a language keeps every key in both prompts', () => {
+  const plain = analyzePrompts('a', 'b');
+  const spanish = analyzePrompts('a', 'b', null, '', 'es');
+  assert.deepEqual(promptKeys(spanish.frame), promptKeys(plain.frame));
+  assert.deepEqual(promptKeys(spanish.grounded), promptKeys(plain.grounded));
+});
+
+test('a language is cached apart, and English keeps the existing keys', () => {
+  const plain = analyzeCacheKey('organising', 'less isolation', null);
+  assert.equal(analyzeCacheKey('organising', 'less isolation', null, '', 'en'), plain);
+  assert.equal(analyzeCacheKey('organising', 'less isolation', null, '', 'pt'), `${plain}|||lang:pt`);
+  assert.notEqual(
+    analyzeCacheKey('organising', 'less isolation', null, '', 'pt'),
+    analyzeCacheKey('organising', 'less isolation', null, '', 'es')
+  );
+});
+
+// ─── Recommendation cards ─────────────────────────────────────────────────────
+
+const CARDS = {
+  categories: [{ type: 'category', name: 'Voter registration', description: 'Tools that register voters.', softrUrl: 'https://x/a' }],
+  issues: [{ type: 'issue', name: 'climate change', description: '', softrUrl: 'https://x/b' }],
+  communities: []
+};
+
+test('card translations parse only when one comes back for every card', () => {
+  const text = '[{"name":"Registo","description":"Ferramentas."},{"name":"clima","description":""}]';
+  assert.deepEqual(parseCardTranslations(text, 2), [
+    { name: 'Registo', description: 'Ferramentas.' },
+    { name: 'clima', description: '' }
+  ]);
+  assert.equal(parseCardTranslations(text, 3), null);
+  assert.equal(parseCardTranslations('not json', 2), null);
+  assert.equal(parseCardTranslations('[{"name":7}]', 1), null);
+});
+
+test('English cards pass through without a translation call', async () => {
+  let calls = 0;
+  const out = await translateCards(CARDS, 'en', async () => { calls++; return ''; });
+  assert.equal(out, CARDS);
+  assert.equal(calls, 0);
+});
+
+test('cards come back translated, with links untouched, and are cached', async () => {
+  cardCache.clear();
+  let calls = 0;
+  const translate = async () => {
+    calls++;
+    return '[{"name":"Registo eleitoral","description":"Ferramentas de registo."},{"name":"clima","description":""}]';
+  };
+  const out = await translateCards(CARDS, 'pt', translate);
+  assert.equal(out.categories[0].name, 'Registo eleitoral');
+  assert.equal(out.categories[0].softrUrl, 'https://x/a');
+  assert.equal(out.issues[0].name, 'clima');
+  assert.equal(CARDS.categories[0].name, 'Voter registration', 'the curator payload is not mutated');
+
+  const again = await translateCards(CARDS, 'pt', translate);
+  assert.equal(again.categories[0].name, 'Registo eleitoral');
+  assert.equal(calls, 1);
+});
+
+test('a failed or malformed translation shows the English cards', async () => {
+  cardCache.clear();
+  const thrown = await translateCards(CARDS, 'es', async () => { throw new Error('boom'); });
+  assert.equal(thrown.categories[0].name, 'Voter registration');
+  const malformed = await translateCards(CARDS, 'es', async () => '[]');
+  assert.equal(malformed.categories[0].name, 'Voter registration');
+  assert.equal(cardCache.size, 0, 'nothing is cached from a failure');
+});
+
+test('only the cards not yet cached are sent for translation', async () => {
+  cardCache.clear();
+  await translateCards({ categories: [CARDS.categories[0]] }, 'pt', async () => '[{"name":"Registo","description":"F."}]');
+  let sent = null;
+  const out = await translateCards(CARDS, 'pt', async (cards) => { sent = cards; return '[{"name":"clima","description":""}]'; });
+  assert.deepEqual(sent.map((c) => c.name), ['climate change']);
+  assert.equal(out.categories[0].name, 'Registo');
+  assert.equal(out.issues[0].name, 'clima');
 });
