@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Resend } from 'resend';
 import { detectFromRequest, bundleKey, countryFromTimeZone, countryCodes } from 'localize';
 import { getBundle, referenceBundle, REFERENCE_KEY, listBundles } from './lib/i18n.js';
+import { OUTPUT_LANGUAGES, ANALYSIS_REGISTER, DEFAULT_OUTPUT_LANGUAGE, outputLanguage } from './lib/languages.js';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
@@ -131,7 +132,8 @@ function renderIndex(key) {
 
   const payload = {
     locale: { tag: language, dir, bundleKey: key },
-    strings: bundle
+    strings: bundle,
+    outputLanguages: Object.keys(OUTPUT_LANGUAGES)
   };
 
   // Every replacement below is a function, never a string. Translated copy goes
@@ -422,11 +424,14 @@ function scopeFromPlace(place) {
 // A global analysis keeps the key format written before places existed, so
 // entries already cached still answer it. A pushback is its own analysis and
 // caches under its own key, so the original still answers the plain question.
-function analyzeCacheKey(action, change, scope, clarification = '') {
+// English adds nothing to the key, so every entry written before languages
+// existed still answers.
+function analyzeCacheKey(action, change, scope, clarification = '', lang = DEFAULT_OUTPUT_LANGUAGE) {
   let key = `${action.toLowerCase().trim()}|||${change.toLowerCase().trim()}`;
   if (scope) key += `|||place:${scope.text.toLowerCase()}`;
   const note = clarification.toLowerCase().trim();
-  return note ? `${key}|||pushback:${note}` : key;
+  if (note) key += `|||pushback:${note}`;
+  return lang === DEFAULT_OUTPUT_LANGUAGE ? key : `${key}|||lang:${lang}`;
 }
 
 // The basic search variant, deliberately. 20260209 filters each result set by
@@ -451,7 +456,7 @@ function groundedSearchTool(scope) {
 // seconds rather than behind the search phase. Both halves must always emit every
 // key they own: an absent key and one still streaming are the same null to the
 // progressive renderer, and either stalls every section after it.
-function analyzePrompts(action, change, scope = null, clarification = '') {
+function analyzePrompts(action, change, scope = null, clarification = '', lang = DEFAULT_OUTPUT_LANGUAGE) {
   // Local cases make a theory easier to act on, but a weaker local study must
   // not displace a stronger one from elsewhere, so the instruction is a
   // preference and says where it stops.
@@ -468,6 +473,12 @@ function analyzePrompts(action, change, scope = null, clarification = '') {
   const localSearch = scope
     ? ` You have one more search reserved for ${scope.text}: use it last, for local evidence on either link, and never in place of the searches above.`
     : '';
+  // Only the prose changes language. strength_label drives the diagram's colour and
+  // dash pattern and as_of is parsed as a year, so both stay exactly as specified.
+  // Source names stay as published, because the link lookup searches for them.
+  const writeIn = lang === DEFAULT_OUTPUT_LANGUAGE ? '' : `
+
+Write every string value in the JSON in ${OUTPUT_LANGUAGES[lang]}${ANALYSIS_REGISTER[lang] ? `, ${ANALYSIS_REGISTER[lang]}` : ''}, even where the sources you read are in English. Keep every JSON key, the four strength_label values and as_of exactly as specified below. Write each source name as it is published. A movement, law or organisation can take its established name in that language where one exists.`;
   const theory = `You are an expert in social change theory, history, and empirical research. Analyze this theory of change: "Doing '${action}' will create '${change}' in ${where}."${focus}${pushback}`;
 
   const scoring = `Score 70–100 as Strong if there is robust peer-reviewed evidence across multiple contexts; 40–69 as Moderate if evidence exists but is mixed or context-dependent; 10–39 as Weak if evidence is thin or contested; 0–9 as Speculative if there is little to no empirical basis.`;
@@ -478,7 +489,7 @@ You have no search tool on this pass and must answer from what you already know.
 
 Be specific — cite real movements, researchers, and cases. Be concise: 1-2 sentences per field, short titles.
 
-${scoring}
+${scoring}${writeIn}
 
 Write nothing before the JSON. No preamble, no plan, no commentary.
 
@@ -511,7 +522,7 @@ evidence_for and evidence_against take 0 to 3 items each. Include only findings 
 
 Be specific — cite real movements, researchers, and cases. Be concise: 1-2 sentences per field, short titles.
 
-Your score is the one the reader ends up with, and it must follow the sources you just read rather than your prior impression of the theory. ${scoring}
+Your score is the one the reader ends up with, and it must follow the sources you just read rather than your prior impression of the theory. ${scoring}${writeIn}
 
 Before the JSON, write nothing a person would read. No sentences, no plan, no summary of what a search returned. If you write anything at all between searches, it is one line per search in the form q:<keywords>, each on its own line, ending with a line break before anything else follows it.
 
@@ -595,7 +606,8 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
 
   const scope = scopeFromPlace(place);
-  const cacheKey = analyzeCacheKey(action, change, scope, clarification);
+  const lang = outputLanguage(req.body.lang);
+  const cacheKey = analyzeCacheKey(action, change, scope, clarification, lang);
   const cached = parseStreams(cacheGet(cacheKey) ?? '');
   if (cached) {
     res.write(`data: ${JSON.stringify({ chunk: cached.frame, s: 'frame' })}\n\n`);
@@ -614,7 +626,7 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  const prompts = analyzePrompts(action, change, scope, clarification);
+  const prompts = analyzePrompts(action, change, scope, clarification, lang);
 
   // Both calls are in flight at once, so the page has the diagram while the
   // searches are still running. The pair shares one reservation and settles once,
@@ -635,7 +647,7 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
     // instantly and permanently as a page with a hole in it.
     if (complete.frame && complete.grounded) cacheSet(cacheKey, serializeStreams(text));
     else console.warn('analyze not cached: one of the two calls did not finish cleanly');
-    console.log(`analyze total: took=${formatDuration(Date.now() - startedAt)}, place=${scope ? (scope.code ?? 'custom') : 'none'}, cost=$${billed.toFixed(4)}, spent_today=$${settleSpend(reservation, billed).toFixed(2)}/${DAILY_BUDGET_USD}`);
+    console.log(`analyze total: took=${formatDuration(Date.now() - startedAt)}, place=${scope ? (scope.code ?? 'custom') : 'none'}, lang=${lang}, cost=$${billed.toFixed(4)}, spent_today=$${settleSpend(reservation, billed).toFixed(2)}/${DAILY_BUDGET_USD}`);
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
   }
@@ -1052,11 +1064,103 @@ const recommendLimiter = rateLimit({
   message: { categories: [] }
 });
 
+// The curator answers in English. Its cards come from a finite list of Field Guide
+// categories, issues and communities, so each card is translated once per language
+// and kept, and after a while nearly every card is a cache hit.
+const CARD_CACHE_MAX = 2000;
+const cardCache = new Map();
+const CARD_GROUPS = ['categories', 'issues', 'communities'];
+
+function cardCacheKey(card, lang) {
+  return `${lang}|||${card.softrUrl || card.name}`;
+}
+
+// One translation per card, in order, or nothing. A short or reordered list would
+// put one card's description under another card's name.
+function parseCardTranslations(text, count) {
+  if (typeof text !== 'string') return null;
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
+  if (start === -1 || end < start) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length !== count) return null;
+  const out = [];
+  for (const item of parsed) {
+    if (!item || typeof item.name !== 'string' || !item.name.trim()) return null;
+    if (item.description !== undefined && typeof item.description !== 'string') return null;
+    out.push({ name: item.name, description: item.description ?? '' });
+  }
+  return out;
+}
+
+// Any card left untranslated sends the whole set back in English, because a
+// section in two languages reads as broken where one in English reads as a gap.
+async function translateCards(payload, lang, translate) {
+  if (lang === DEFAULT_OUTPUT_LANGUAGE || !payload || typeof payload !== 'object') return payload;
+  const cards = CARD_GROUPS.flatMap((group) => (Array.isArray(payload[group]) ? payload[group] : []))
+    .filter((card) => card && typeof card.name === 'string');
+  if (!cards.length) return payload;
+
+  const missing = cards.filter((card) => !cardCache.has(cardCacheKey(card, lang)));
+  if (missing.length) {
+    try {
+      const translated = parseCardTranslations(await translate(missing, lang), missing.length);
+      if (!translated) return payload;
+      missing.forEach((card, i) => {
+        if (cardCache.size >= CARD_CACHE_MAX) cardCache.delete(cardCache.keys().next().value);
+        cardCache.set(cardCacheKey(card, lang), translated[i]);
+      });
+    } catch (err) {
+      console.warn('recommend translation failed:', err.message || err);
+      return payload;
+    }
+  }
+
+  const out = { ...payload };
+  for (const group of CARD_GROUPS) {
+    if (!Array.isArray(payload[group])) continue;
+    out[group] = payload[group].map((card) => {
+      const hit = card && typeof card.name === 'string' ? cardCache.get(cardCacheKey(card, lang)) : null;
+      return hit ? { ...card, name: hit.name, description: card.description ? hit.description : card.description } : card;
+    });
+  }
+  return out;
+}
+
+async function translateCardsWithModel(cards, lang) {
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is not set');
+  if (budgetExhausted()) throw new Error('daily budget spent');
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const entries = cards.map((card) => ({ name: card.name, description: card.description || '' }));
+  const prompt = `Translate the name and description of each of these entries from a directory of civic technology into ${OUTPUT_LANGUAGES[lang]}. Each name is a topic label such as "Unions" or "housing", not a proper name, so translate it like any other word and keep its capitalisation style. Translate each description faithfully, without adding a form of address that the English does not have. An empty description stays empty.
+
+Return ONLY a JSON array with one {"name": "...", "description": "..."} object per entry, in the same order, and nothing else.
+
+${JSON.stringify(entries)}`;
+  // Short, because the reader is already waiting on the curator, and the English
+  // cards are a fine answer if this runs long.
+  const msg = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 2048,
+    messages: [{ role: 'user', content: prompt }]
+  }, { timeout: 10000, maxRetries: 0 });
+  const cost = lookupCost(msg);
+  recordSpend(cost);
+  console.log(`recommend translated: lang=${lang}, cards=${cards.length}, cost=$${cost.toFixed(4)}`);
+  return textFromContent(msg.content);
+}
+
 app.post('/api/recommend', recommendLimiter, async (req, res) => {
   if (!CURATOR_API_URL) return res.json({ categories: [] });
   const text = typeof req.body?.text === 'string' ? req.body.text : '';
   if (!text.trim()) return res.json({ categories: [] });
   const limit = Math.max(1, Math.min(3, parseInt(req.body?.limit, 10) || 3));
+  const lang = outputLanguage(req.body?.lang);
 
   try {
     const ctrl = new AbortController();
@@ -1076,7 +1180,7 @@ app.post('/api/recommend', recommendLimiter, async (req, res) => {
       return res.json({ categories: [] });
     }
     const data = await upstream.json();
-    return res.json(data);
+    return res.json(data?.dailyCapReached ? data : await translateCards(data, lang, translateCardsWithModel));
   } catch (err) {
     console.warn('recommend proxy: error', err.message || err);
     return res.json({ categories: [] });
@@ -1103,4 +1207,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, analyzePrompts, visitorCountry, scopeFromPlace, analyzeCacheKey, groundedSearchTool, serializeStreams, parseStreams, formatDuration, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, reserveSpend, settleSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, analyzePrompts, parseCardTranslations, translateCards, cardCache, visitorCountry, scopeFromPlace, analyzeCacheKey, groundedSearchTool, serializeStreams, parseStreams, formatDuration, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, reserveSpend, settleSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
