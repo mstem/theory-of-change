@@ -143,9 +143,10 @@ test('a bundle key cannot be anything that reaches outside the locales directory
 });
 
 test('a written bundle reads back', () => {
-  assert.equal(writeBundle('nl', translationOf({ 'hero.cta': 'Onderzoek deze theorie' })), true);
-  assert.equal(getBundle('nl')['hero.cta'], 'Onderzoek deze theorie');
-  assert.ok(listBundles().includes('nl'));
+  // Basque: not a committed language, so the generated copy is what reads back.
+  assert.equal(writeBundle('eu', translationOf({ 'hero.cta': 'Aztertu teoria hau' })), true);
+  assert.equal(getBundle('eu')['hero.cta'], 'Aztertu teoria hau');
+  assert.ok(listBundles().includes('eu'));
 });
 
 test('the committed bundle wins over a generated one', () => {

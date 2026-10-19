@@ -1499,6 +1499,7 @@
     align-items: center;
     justify-content: center;
     gap: 0.75rem;
+    padding: 0 16px;
     font-size: 0.8rem;
     color: var(--muted);
   }
@@ -1527,7 +1528,9 @@
   .hero-footer__link:hover { color: var(--text); }
 
   .hero-footer { flex-wrap: wrap; }
-  .page-langs { display: inline-flex; align-items: center; gap: 0.75rem; }
+  /* Wraps onto a second line at phone width once there are more than a few
+     languages; min-width: 0 lets it shrink inside the footer's flex row. */
+  .page-langs { display: inline-flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 0.4rem 0.75rem; min-width: 0; }
   .hero-footer .page-langs a { color: var(--muted); text-decoration: none; transition: color 0.15s; }
   .hero-footer .page-langs a:hover { color: var(--text); }
   .page-langs [aria-current] { color: var(--text); }
@@ -1632,9 +1635,7 @@
         contenteditable="plaintext-only"
         data-placeholder="x"
         spellcheck="false"
-      ></span><span class="field-word" id="word-x">action</span>
-      <ul class="suggestions" id="sug-x" role="listbox"></ul>
-    </span>
+      ></span><span class="field-word" id="word-x">action</span><ul class="suggestions" id="sug-x" role="listbox"></ul></span>
     <span class="field-wrap y" id="wrap-y">
       <span
         class="field"
@@ -1642,11 +1643,9 @@
         contenteditable="plaintext-only"
         data-placeholder="y"
         spellcheck="false"
-      ></span><span class="field-word" id="word-y">change</span>
-      <ul class="suggestions" id="sug-y" role="listbox"></ul>
-    </span>
-    <!-- No whitespace inside this wrap: it sits directly before the "?" and any
-         space here would render as a gap before the question mark. -->
+      ></span><span class="field-word" id="word-y">change</span><ul class="suggestions" id="sug-y" role="listbox"></ul></span>
+    <!-- No whitespace at the end of any wrap: a translation can put "?" straight
+         after a field, and a trailing space would render as a gap before it. -->
     <span class="field-wrap z" id="wrap-z"><span class="field" id="field-z" contenteditable="plaintext-only" spellcheck="false">the world</span><ul class="suggestions" id="sug-z" role="listbox"></ul></span>
   </h1>
 
