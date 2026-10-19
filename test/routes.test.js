@@ -588,9 +588,10 @@ test('both footers offer every installed language but the current one, each in i
 
 test('the picker is named in the page language', async () => {
   const en = await (await fetch(`${BASE}/`, { headers: { 'Accept-Language': 'en' } })).text();
-  assert.match(en, /role="group" aria-label="Page language"/);
+  assert.match(en, /<summary aria-label="Page language: English">/);
+  assert.match(en, /<ul class="page-langs__menu" aria-label="Page language">/);
   const pt = await (await fetch(`${BASE}/`, { headers: { 'Accept-Language': 'pt-PT' } })).text();
-  assert.match(pt, /role="group" aria-label="Idioma da página"/);
+  assert.match(pt, /<summary aria-label="Idioma da página: Português">/);
   assert.ok(pickerLinks(pt).some(([code, name]) => code === 'en' && name === 'English'));
 });
 
