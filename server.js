@@ -115,6 +115,31 @@ app.use((req, res, next) => {
 //
 // Registered before express.static, and matched on exact paths rather than as a
 // catch-all, or unknown paths would stop 404ing.
+// Every language the page can be served in. A bundle file that fails validation
+// is left out, or the picker would offer a language that renders as English.
+function pageLanguages() {
+  const usable = listBundles().filter((key) => key !== REFERENCE_KEY && getBundle(key));
+  return [REFERENCE_KEY, ...usable.sort()];
+}
+
+// Each language in its own name, because the reader who needs the picker may not
+// read the language the page is in. The current one is marked rather than linked.
+// Plain links, so a switch works for one visit with no script at all; app.js adds
+// the cookie that makes it stick.
+function pageLanguagePicker(current, label, sep) {
+  const languages = pageLanguages();
+  if (languages.length < 2) return '';
+  const items = languages.map((code) => {
+    let name = code;
+    try { name = new Intl.DisplayNames([code], { type: 'language' }).of(code) || code; } catch {}
+    name = escapeHtml(name.charAt(0).toLocaleUpperCase(code) + name.slice(1));
+    return code === current
+      ? `<span aria-current="true" lang="${code}">${name}</span>`
+      : `<a href="/?lang=${code}" lang="${code}" data-page-lang="${code}">${name}</a>`;
+  });
+  return `${sep}<span class="page-langs" role="group" aria-label="${escapeHtml(label)}">${items.join(sep)}</span>`;
+}
+
 const RENDER_CACHE_MAX = 32;
 const renderCache = new Map();
 
@@ -156,6 +181,11 @@ function renderIndex(key) {
     const pattern = new RegExp(`<meta ${attribute}="${name}" content="[^"]*">`);
     html = html.replace(pattern, () => `<meta ${attribute}="${name}" content="${escapeHtml(value)}">`);
   }
+  const label = t('footer.pageLanguage');
+  html = html
+    .replace('<!--page-languages:hero-->', () => pageLanguagePicker(language, label, '<span class="hero-footer__sep">·</span>'))
+    .replace('<!--page-languages:results-->', () => pageLanguagePicker(language, label, '<span class="footer-sep">·</span>'));
+
   html = html.replace('<meta property="og:type" content="website">',
     () => `<meta property="og:type" content="website">\n<meta property="og:locale" content="${escapeHtml(language)}">`);
 
@@ -176,8 +206,17 @@ app.get(['/', '/index.html'], (req, res, next) => {
   // Without an available list, negotiation hands back the top well-formed entry
   // whether or not a bundle exists for it, so a reader who also accepts a
   // language we do have gets English instead.
-  const detected = detectFromRequest(req, { available: listBundles() });
-  const key = bundleKey(detected.language.tag) ?? REFERENCE_KEY;
+  const available = listBundles();
+  const detected = detectFromRequest(req, { available });
+  // A saved or linked choice of a language that is not installed (a stale cookie,
+  // a hand-typed ?lang=) falls back to what the browser asks for, not to English.
+  const installed = (tag) => {
+    const key = bundleKey(tag);
+    return key && available.includes(key) ? key : null;
+  };
+  const key = installed(detected.language.tag)
+    ?? installed(detectFromRequest({ headers: { 'accept-language': req.headers['accept-language'] } }, { available }).language.tag)
+    ?? REFERENCE_KEY;
 
   // Both inputs to the choice are request headers, so a shared cache in front
   // of this would otherwise serve one visitor's language to the next.

@@ -540,3 +540,33 @@ test('a refused lookup carries no url field for the page to misread as a miss', 
   assert.equal(res.status, 503);
   assert.equal('url' in body, false);
 });
+
+// ─── Page-language picker ─────────────────────────────────────────────────────
+
+function pickerLinks(html) {
+  return [...html.matchAll(/<a [^>]*data-page-lang="([^"]+)"[^>]*>([^<]+)<\/a>/g)].map((m) => [m[1], m[2]]);
+}
+
+test('both footers offer every installed language but the current one, each in its own name', async () => {
+  const html = await (await fetch(`${BASE}/`, { headers: { 'Accept-Language': 'en' } })).text();
+  const links = pickerLinks(html);
+  assert.ok(links.some(([code, name]) => code === 'pt' && name === 'Português'));
+  assert.ok(links.some(([code]) => code === NEGOTIATED_LOCALE));
+  assert.ok(!links.some(([code]) => code === 'en'), 'the current language is not a link');
+  assert.equal(links.filter(([code]) => code === 'pt').length, 2, 'one in each footer');
+  assert.match(html, /href="\/\?lang=pt" lang="pt"/);
+  assert.match(html, /aria-current="true" lang="en">English</);
+});
+
+test('the picker is named in the page language', async () => {
+  const en = await (await fetch(`${BASE}/`, { headers: { 'Accept-Language': 'en' } })).text();
+  assert.match(en, /role="group" aria-label="Page language"/);
+  const pt = await (await fetch(`${BASE}/`, { headers: { 'Accept-Language': 'pt-PT' } })).text();
+  assert.match(pt, /role="group" aria-label="Idioma da página"/);
+  assert.ok(pickerLinks(pt).some(([code, name]) => code === 'en' && name === 'English'));
+});
+
+test('a saved language nobody has installed falls back to the browser header', async () => {
+  const res = await fetch(`${BASE}/`, { headers: { 'Accept-Language': 'pt-PT', Cookie: 'locale_pref=lang%3Dxx' } });
+  assert.match(await res.text(), /<html lang="pt"/);
+});
