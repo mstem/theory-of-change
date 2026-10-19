@@ -54,6 +54,7 @@
   :root {
     --x-color: #1e3a8a;
     --y-color: #940f30;
+    --z-color: #5a5a5a;
     --strong: #16A34A;
     --moderate: #D97706;
     --weak: #DC2626;
@@ -135,8 +136,10 @@
 
   .field-wrap.x { color: var(--x-color); }
   .field-wrap.y { color: var(--y-color); }
-  /* The place (.z) is optional and defaults to global, so it keeps the
-     headline's ink colour rather than taking a third accent. */
+  /* The place is optional and defaults to global, so it takes a lighter
+     charcoal than the headline ink rather than a third accent. */
+  .field-wrap.z { color: var(--z-color); }
+  .field-wrap.z .field { font-weight: 500; }
 
   .headline .accent-y { color: var(--y-color); }
 
