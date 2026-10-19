@@ -1528,12 +1528,66 @@
   .hero-footer__link:hover { color: var(--text); }
 
   .hero-footer { flex-wrap: wrap; }
-  /* Wraps onto a second line at phone width once there are more than a few
-     languages; min-width: 0 lets it shrink inside the footer's flex row. */
-  .page-langs { display: inline-flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 0.4rem 0.75rem; min-width: 0; }
-  .hero-footer .page-langs a { color: var(--muted); text-decoration: none; transition: color 0.15s; }
-  .hero-footer .page-langs a:hover { color: var(--text); }
-  .page-langs [aria-current] { color: var(--text); }
+  /* Page-language dropdown. Both footers sit at the bottom of the screen, so
+     the list opens upward. */
+  .page-langs { position: relative; display: inline-block; }
+  .page-langs summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    list-style: none;
+    color: var(--muted);
+    transition: color 0.15s;
+  }
+  .page-langs summary::-webkit-details-marker { display: none; }
+  .page-langs summary::after {
+    content: '';
+    width: 0.4em;
+    height: 0.4em;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-0.1em) rotate(45deg);
+    margin-left: 0.15rem;
+  }
+  .page-langs[open] summary::after { transform: translateY(0.1em) rotate(-135deg); }
+  .page-langs summary:hover,
+  .page-langs[open] summary { color: var(--text); }
+  .page-langs summary:focus-visible { outline: 2px solid var(--x-color); outline-offset: 3px; border-radius: 4px; }
+  .page-langs__icon { flex: none; }
+  .page-langs__menu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 10rem;
+    margin: 0;
+    padding: 0.35rem 0;
+    list-style: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.10);
+    z-index: 100;
+    text-align: left;
+  }
+  .page-langs__menu a,
+  .page-langs__menu [aria-current] {
+    display: block;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+  .page-langs__menu a { color: var(--muted); text-decoration: none; }
+  .page-langs__menu a:hover,
+  .page-langs__menu a:focus-visible { color: var(--text); background: #f5f4f4; outline: none; }
+  .page-langs__menu [aria-current] { color: var(--text); font-weight: 600; }
+  /* On a phone the picker takes its own line, so the dot before it would hang
+     at the end of the line above. */
+  @media (max-width: 480px) {
+    .hero-footer .page-langs { flex-basis: 100%; text-align: center; }
+    .hero-footer__sep:has(+ .page-langs) { display: none; }
+  }
 
   /* ─── SVG nodes ──────────────────────────────────── */
   .node-x { fill: #e8eef8; stroke: var(--x-color); stroke-width: 2; }

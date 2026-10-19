@@ -122,22 +122,31 @@ function pageLanguages() {
   return [REFERENCE_KEY, ...usable.sort()];
 }
 
-// Each language in its own name, because the reader who needs the picker may not
-// read the language the page is in. The current one is marked rather than linked.
-// Plain links, so a switch works for one visit with no script at all; app.js adds
-// the cookie that makes it stick.
+// A dropdown showing the current language, with each language listed in its own
+// name, because the reader who needs the picker may not read the language the
+// page is in. <details> rather than <select>: the options stay plain links, so a
+// switch works for one visit with no script at all; app.js adds the cookie that
+// makes it stick, and closes the list on an outside click or Escape.
+const GLOBE_ICON = '<svg class="page-langs__icon" aria-hidden="true" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+
+function languageName(code) {
+  let name = code;
+  try { name = new Intl.DisplayNames([code], { type: 'language' }).of(code) || code; } catch {}
+  return escapeHtml(name.charAt(0).toLocaleUpperCase(code) + name.slice(1));
+}
+
 function pageLanguagePicker(current, label, sep) {
   const languages = pageLanguages();
   if (languages.length < 2) return '';
   const items = languages.map((code) => {
-    let name = code;
-    try { name = new Intl.DisplayNames([code], { type: 'language' }).of(code) || code; } catch {}
-    name = escapeHtml(name.charAt(0).toLocaleUpperCase(code) + name.slice(1));
+    const name = languageName(code);
     return code === current
-      ? `<span aria-current="true" lang="${code}">${name}</span>`
-      : `<a href="/?lang=${code}" lang="${code}" data-page-lang="${code}">${name}</a>`;
+      ? `<li><span aria-current="true" lang="${code}">${name}</span></li>`
+      : `<li><a href="/?lang=${code}" lang="${code}" data-page-lang="${code}">${name}</a></li>`;
   });
-  return `${sep}<span class="page-langs" role="group" aria-label="${escapeHtml(label)}">${items.join(sep)}</span>`;
+  const currentName = languageName(languages.includes(current) ? current : REFERENCE_KEY);
+  return `${sep}<details class="page-langs"><summary aria-label="${escapeHtml(label)}: ${currentName}">${GLOBE_ICON}<span lang="${current}">${currentName}</span></summary>`
+    + `<ul class="page-langs__menu" aria-label="${escapeHtml(label)}">${items.join('')}</ul></details>`;
 }
 
 const RENDER_CACHE_MAX = 32;

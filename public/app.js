@@ -1816,6 +1816,21 @@ document.addEventListener('click', (e) => {
   } catch {}
 });
 
+// The language list is a <details>, which only closes when its own summary is
+// clicked. A dropdown should also close on a click elsewhere or on Escape.
+document.addEventListener('click', (e) => {
+  for (const picker of document.querySelectorAll('details.page-langs[open]')) {
+    if (!picker.contains(e.target)) picker.open = false;
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  for (const picker of document.querySelectorAll('details.page-langs[open]')) {
+    picker.open = false;
+    picker.querySelector('summary')?.focus();
+  }
+});
+
 (function restorePendingTheory() {
   let theory = null;
   try {
