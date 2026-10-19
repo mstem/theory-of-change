@@ -158,6 +158,7 @@ function renderIndex(key) {
   const payload = {
     locale: { tag: language, dir, bundleKey: key },
     strings: bundle,
+    suggestions: getBundle(key, 'suggestions') ?? getBundle(REFERENCE_KEY, 'suggestions'),
     outputLanguages: Object.keys(OUTPUT_LANGUAGES)
   };
 

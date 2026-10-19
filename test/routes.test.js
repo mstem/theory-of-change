@@ -541,6 +541,18 @@ test('a refused lookup carries no url field for the page to misread as a miss', 
   assert.equal('url' in body, false);
 });
 
+test('the page carries the suggestion lists in its own language', async () => {
+  const pageData = async (lang) => {
+    const html = await (await fetch(`${BASE}/?lang=${lang}`)).text();
+    return JSON.parse(/<script type="application\/json" id="i18n">([\s\S]*?)<\/script>/.exec(html)[1]);
+  };
+  const pt = await pageData('pt');
+  assert.equal(pt.suggestions['suggestions.x'][0], 'organizar ação comunitária');
+  assert.equal(pt.suggestions['suggestions.y'][0], 'estabilidade climática');
+  const en = await pageData('en');
+  assert.equal(en.suggestions['suggestions.x'][0], 'organizing community action');
+});
+
 // ─── Page-language picker ─────────────────────────────────────────────────────
 
 function pickerLinks(html) {

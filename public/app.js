@@ -5,7 +5,7 @@
 // first paint: no flash of English, and nothing moves under a visitor who has
 // already started typing.
 const I18N = (() => {
-  const fallback = { locale: { tag: 'en', dir: 'ltr', bundleKey: 'en' }, strings: {}, outputLanguages: ['en'] };
+  const fallback = { locale: { tag: 'en', dir: 'ltr', bundleKey: 'en' }, strings: {}, suggestions: {}, outputLanguages: ['en'] };
   try {
     const dataBlock = document.getElementById('i18n');
     if (!dataBlock) return fallback;
@@ -13,6 +13,7 @@ const I18N = (() => {
     return {
       locale: parsed.locale ?? fallback.locale,
       strings: parsed.strings ?? {},
+      suggestions: parsed.suggestions ?? {},
       outputLanguages: Array.isArray(parsed.outputLanguages) ? parsed.outputLanguages : fallback.outputLanguages
     };
   } catch {
@@ -314,8 +315,14 @@ const sugX   = document.getElementById('sug-x');
 const sugY   = document.getElementById('sug-y');
 const btn    = document.getElementById('analyze-btn');
 
-setupAutocomplete(fieldX, sugX, X_SUGGESTIONS);
-setupAutocomplete(fieldY, sugY, Y_SUGGESTIONS);
+// The English lists above are the fallback for a page opened without the data
+// block; otherwise the server sends the lists in the page's language.
+const suggestionList = (key, english) => {
+  const list = I18N.suggestions[key];
+  return Array.isArray(list) && list.length ? list : english;
+};
+setupAutocomplete(fieldX, sugX, suggestionList('suggestions.x', X_SUGGESTIONS));
+setupAutocomplete(fieldY, sugY, suggestionList('suggestions.y', Y_SUGGESTIONS));
 updateField(fieldX); updateField(fieldY);
 
 // Clicking anywhere in the wrap (including the placeholder "action"/"change"

@@ -183,6 +183,17 @@ test('the suggestions bundle is stored and read separately', () => {
   assert.equal(getBundle('ja', 'suggestions'), null);
 });
 
+test('every committed suggestions bundle has as many entries as the English one', () => {
+  const english = getBundle(REFERENCE_KEY, 'suggestions');
+  for (const key of listBundles().filter((k) => k !== REFERENCE_KEY)) {
+    const translated = getBundle(key, 'suggestions');
+    if (!translated) continue;
+    for (const list of ['suggestions.x', 'suggestions.y']) {
+      assert.equal(translated[list]?.length, english[list].length, `${key} ${list}`);
+    }
+  }
+});
+
 test('an unwritable locales directory degrades instead of failing', () => {
   // The app still works, it just re-translates after each deploy. Worth a
   // warning, not a failed request.
