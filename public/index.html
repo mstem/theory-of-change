@@ -1009,6 +1009,20 @@
   .reset-btn:hover,
   .action-btn:hover { border-color: var(--text); color: var(--text); }
 
+  .lang-select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-inline-end: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.85rem center;
+  }
+  .lang-select:disabled { opacity: 0.5; cursor: default; }
+
+  /* The analysis can be in a right-to-left language on a left-to-right page.
+     Each block then takes its direction from its own first letter. */
+  #results :is(p, li, h3, h4, div, span) { unicode-bidi: plaintext; }
+
   /* ─── Share modal ────────────────────────────────── */
   .share-modal-backdrop {
     position: fixed;
@@ -1660,6 +1674,7 @@
   <div class="results-actions">
     <button class="reset-btn" id="reset-btn"><span class="reset-arrow" aria-hidden="true">←</span> <span data-i18n="results.reset">Try another theory</span></button>
     <div class="results-actions-right">
+      <select class="action-btn lang-select" id="lang-select" aria-label="Language of the analysis" data-i18n-attr="aria-label:results.language"></select>
       <button class="action-btn" id="print-btn" type="button" data-i18n="results.savePdf">Save as PDF</button>
       <button class="action-btn" id="share-btn" type="button" data-i18n="results.share">Share</button>
     </div>
