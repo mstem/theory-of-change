@@ -24,7 +24,7 @@ Matt cannot read most of the languages this page ships in, and no native reviewe
 
 1. `locales/xx.json`: every key of `en.json`, plus `_meta` (`language`, `dir`, `charWidthFactor`). The validator in `lib/i18n.js` rejects missing keys, extra keys, stray markup and a headline without one `{X}` and one `{Y}`.
 2. `locales/xx.suggestions.json`: 30 `suggestions.x`, 30 `suggestions.y`, same order as English. A test fails without it.
-3. `lib/languages.js`: an `ANALYSIS_REGISTER` entry, so the analysis addresses the reader the way the page does, and an `OUTPUT_LANGUAGES` name that states the country variant (`'European Portuguese'`, not `'Portuguese'`), or the model writes another country's variant. Changing a prompt line also changes `analyzeCacheKey`'s output for that language; old cached runs are otherwise served.
+3. `lib/languages.js`: an `ANALYSIS_REGISTER` entry, so the analysis addresses the reader the way the page does, and an `OUTPUT_LANGUAGES` name that states the country variant (`'European Portuguese'`, not `'Portuguese'`), or the model writes another country's variant. `analyzeCacheKey` keys on the language code, not the prompt, so runs cached under the old wording keep being served.
 4. `public/app.js` `displayLocale`: map the code to its region (`pt` → `pt-PT`) if `Intl.DisplayNames` would otherwise give another country's names.
 5. Tests: the route test for the language's first suggestion, like the `pt` one in `test/routes.test.js`.
 
