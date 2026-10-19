@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -27,8 +27,10 @@ writeFileSync(
 );
 // A second stub, used for two things: negotiating against what is installed,
 // and proving that a $-sequence in translated copy survives the meta rewrite.
-const NEGOTIATED_LOCALE = 'de';
-const NEGOTIATED_TITLE = 'STUB TITLE DE';
+// Welsh, a language this page is not translated into, so a committed bundle
+// never shadows the generated stub.
+const NEGOTIATED_LOCALE = 'cy';
+const NEGOTIATED_TITLE = 'STUB TITLE CY';
 const DOLLAR_DESCRIPTION = "Preco $& total $` and $' too";
 writeFileSync(
   join(TMP_CACHE_DIR, 'locales', `${NEGOTIATED_LOCALE}.json`),
@@ -494,11 +496,11 @@ test('a $-sequence in translated copy is rendered literally, not expanded', asyn
 });
 
 test('language negotiation only offers bundles that are actually installed', async () => {
-  // `is` has no bundle; `de` does. Without an available list the top entry wins
-  // and the reader gets English instead of the German they can read.
-  const res = await fetch(BASE, { headers: { 'Accept-Language': 'is, de;q=0.9' } });
+  // `is` has no bundle; `cy` does. Without an available list the top entry wins
+  // and the reader gets English instead of the Welsh they can read.
+  const res = await fetch(BASE, { headers: { 'Accept-Language': 'is, cy;q=0.9' } });
   const html = await res.text();
-  assert.match(html, /<html lang="de"/);
+  assert.match(html, /<html lang="cy"/);
   assert.match(html, new RegExp(NEGOTIATED_TITLE));
 });
 
@@ -551,6 +553,20 @@ test('the page carries the suggestion lists in its own language', async () => {
   assert.equal(pt.suggestions['suggestions.y'][0], 'estabilidade climática');
   const en = await pageData('en');
   assert.equal(en.suggestions['suggestions.x'][0], 'organizing community action');
+});
+
+test('every committed language gets its own suggestion lists on its page', async () => {
+  const locales = new URL('../locales/', import.meta.url);
+  const committed = readdirSync(locales)
+    .filter((name) => name.endsWith('.suggestions.json') && name !== 'en.suggestions.json')
+    .map((name) => name.slice(0, -'.suggestions.json'.length));
+  for (const lang of committed) {
+    const expected = JSON.parse(readFileSync(new URL(`${lang}.suggestions.json`, locales), 'utf8'));
+    const html = await (await fetch(`${BASE}/?lang=${lang}`)).text();
+    const data = JSON.parse(/<script type="application\/json" id="i18n">([\s\S]*?)<\/script>/.exec(html)[1]);
+    assert.equal(data.locale.bundleKey, lang, `${lang} page`);
+    assert.deepEqual(data.suggestions, expected, `${lang} suggestions`);
+  }
 });
 
 // ─── Page-language picker ─────────────────────────────────────────────────────
