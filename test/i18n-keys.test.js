@@ -28,6 +28,7 @@ function referencedKeys() {
 // reason. Anything falling out of this list is a key nobody uses.
 const NOT_REFERENCED_BY_THE_CLIENT = {
   'meta.title': 'substituted into the page by the server',
+  'footer.pageLanguage': 'substituted into the page by the server, as the picker group name',
   'meta.description': 'substituted into the page by the server',
   'meta.socialTitle': 'substituted into the page by the server',
   'headline.placeholderX': 'rendered by CSS from data-placeholder; a variable name, not a word',

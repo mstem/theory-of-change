@@ -1788,6 +1788,40 @@ if (typeof navigator.share === 'function') {
   });
 }
 
+// ─── Page language ──────────────────────────────────────────────────────────
+// The picker's links already switch the page for one visit. The cookie is what
+// makes the choice stick: the server reads it before the browser's own header, so
+// the next visit is in the chosen language from the first paint. Same name and
+// format as the localize package writes and reads.
+const PENDING_THEORY_KEY = 'pendingTheory';
+
+document.addEventListener('click', (e) => {
+  const link = e.target.closest?.('a[data-page-lang]');
+  if (!link) return;
+  const code = link.dataset.pageLang;
+  const secure = location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `locale_pref=${encodeURIComponent(`lang=${code}`)}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+  // Whatever the reader has typed comes back after the reload, and nothing runs
+  // on its own: a rerun is theirs to start.
+  const theory = { a: fieldValue(fieldX).trim(), c: fieldValue(fieldY).trim(), p: placeValue() };
+  try {
+    if (theory.a || theory.c || theory.p) sessionStorage.setItem(PENDING_THEORY_KEY, JSON.stringify(theory));
+  } catch {}
+});
+
+(function restorePendingTheory() {
+  let theory = null;
+  try {
+    theory = JSON.parse(sessionStorage.getItem(PENDING_THEORY_KEY) || 'null');
+    sessionStorage.removeItem(PENDING_THEORY_KEY);
+  } catch {}
+  if (!theory || typeof theory !== 'object') return;
+  if (typeof theory.a === 'string' && theory.a) { setFieldValue(fieldX, theory.a); updateField(fieldX); }
+  if (typeof theory.c === 'string' && theory.c) { setFieldValue(fieldY, theory.c); updateField(fieldY); }
+  if (typeof theory.p === 'string' && theory.p) setPlace(theory.p);
+  checkReady();
+})();
+
 // Auto-run analysis when the page is opened with ?a=…&c=… share parameters.
 (function autoRunFromUrl() {
   const params = new URLSearchParams(location.search);
