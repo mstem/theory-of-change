@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,7 +17,8 @@ const {
   writeBundle,
   forgetBundle,
   listBundles,
-  REFERENCE_KEY
+  REFERENCE_KEY,
+  REPO_LOCALES
 } = await import('../lib/i18n.js');
 
 const reference = referenceBundle();
@@ -185,9 +186,16 @@ test('the suggestions bundle is stored and read separately', () => {
 
 test('every committed suggestions bundle has as many entries as the English one', () => {
   const english = getBundle(REFERENCE_KEY, 'suggestions');
-  for (const key of listBundles().filter((k) => k !== REFERENCE_KEY)) {
+  // Committed bundles only: other tests here write generated ones to a temp dir.
+  const committed = readdirSync(REPO_LOCALES)
+    .filter((name) => name.endsWith('.json') && !name.endsWith('.suggestions.json'))
+    .map((name) => name.slice(0, -'.json'.length))
+    .filter((key) => key !== REFERENCE_KEY);
+  assert.ok(committed.includes('pt'));
+  for (const key of committed) {
     const translated = getBundle(key, 'suggestions');
-    if (!translated) continue;
+    // Without the file the dropdowns stay English on an otherwise translated page.
+    assert.ok(translated, `locales/${key}.suggestions.json is missing`);
     for (const list of ['suggestions.x', 'suggestions.y']) {
       assert.equal(translated[list]?.length, english[list].length, `${key} ${list}`);
     }
