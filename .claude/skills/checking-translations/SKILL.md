@@ -40,9 +40,12 @@ Matt cannot read most of the languages this page ships in, and no native reviewe
 
 ## What Matt gets
 
-- The lines changed by the check, each with its source.
-- The disputed lines, both options, and your pick. He decides; do not ship a disputed line he has not seen.
-- The path of the review file.
+Sort the disputed lines into two kinds:
+
+- **Decisions** change what the page says or how it behaves: the headline template (with a sample sentence and its back-translation), a place or grammar limit the template cannot handle, register on buttons versus body text, identity terms and acronyms. Bring each one with both full wordings, the source for each, and your pick. Nothing in this group ships before he has seen it.
+- **Wording**: two acceptable versions of the same line, which no source settled. Keep the drafter's pick and leave both versions in the review file. Give him the count per language, not the lines.
+
+Also give him the lines the check changed, each with its source, and the path of the review file in Chrome Downloads (`theory-of-change-review-<code>.csv`).
 
 Then ship one PR per language.
 
@@ -53,3 +56,4 @@ Then ship one PR per language.
 | Letting the second translator see the draft | It then agrees with the draft. Pass only the English. |
 | Searching sources from another country | Brazilian results do not settle European Portuguese. |
 | Asking Matt to decide from labels | Show both wordings in full, with what each source said. |
+| Bringing him every wording dispute | He does not read most of these languages. Wording disputes stay in the review file. |
