@@ -45,6 +45,8 @@ const {
   visitorCountry,
   analyzeCacheKey,
   groundedSearchTool,
+  unsupportedSearchCountry,
+  unsupportedSearchCountries,
   scopeFromPlace,
   parseCardTranslations,
   translateCards,
@@ -1464,6 +1466,27 @@ test('a place adds a local search on top of the plan', () => {
   assert.equal(groundedSearchTool(null).max_uses, 3);
   assert.equal(groundedSearchTool({ text: 'Portugal', code: 'PT' }).max_uses, 4);
   assert.equal(groundedSearchTool({ text: 'Lisbon', code: null }).max_uses, 4);
+});
+
+// The search API rejects some ISO country codes outright with a 400, and the
+// docs publish no list of which. A rejected code must cost the reader the
+// location hint, never the evidence half of the analysis.
+test('a country the search rejects is recognised from the API error', () => {
+  const err = { status: 400, error: { type: 'error', error: { type: 'invalid_request_error', message: 'tools.0.web_search_20250305: Country code IE is not supported.' } } };
+  assert.equal(unsupportedSearchCountry(err), 'IE');
+  assert.equal(unsupportedSearchCountry({ status: 400, error: { error: { message: 'max_tokens: too large' } } }), null);
+  assert.equal(unsupportedSearchCountry({ status: 500, error: { error: { message: 'Country code IE is not supported.' } } }), null);
+  assert.equal(unsupportedSearchCountry(new Error('socket hang up')), null);
+});
+
+test('a rejected country keeps its place but loses the location hint', () => {
+  const scope = { text: 'Ireland', code: 'XQ' };
+  assert.deepEqual(groundedSearchTool(scope).user_location, { type: 'approximate', country: 'XQ' });
+  unsupportedSearchCountries.add('XQ');
+  const tool = groundedSearchTool(scope);
+  assert.equal(tool.user_location, undefined);
+  assert.equal(tool.max_uses, 4);
+  unsupportedSearchCountries.delete('XQ');
 });
 
 // ─── Pushback ─────────────────────────────────────────────────────────────────
