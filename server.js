@@ -236,6 +236,32 @@ app.get(['/', '/index.html'], (req, res, next) => {
   res.send(renderIndex(key));
 });
 
+// For Search Console. The API is off limits because a crawler that renders a
+// shared link (?a=...&c=...) would run a paid analysis from the page's script.
+const SITE_URL = 'https://theory.evensfoundation.eu';
+
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(`User-agent: *\nDisallow: /api/\n\nSitemap: ${SITE_URL}/sitemap.xml\n`);
+});
+
+// One entry per page language, each listing every version so search engines
+// show readers the one in their language. English stays at the bare URL, which
+// is also the default for a reader whose language the page does not have.
+app.get('/sitemap.xml', (req, res) => {
+  const pageUrl = (code) => (code === REFERENCE_KEY ? `${SITE_URL}/` : `${SITE_URL}/?lang=${code}`);
+  const langs = pageLanguages();
+  const alternates = [
+    ...langs.map((code) => `    <xhtml:link rel="alternate" hreflang="${code}" href="${pageUrl(code)}"/>`),
+    `    <xhtml:link rel="alternate" hreflang="x-default" href="${SITE_URL}/"/>`
+  ].join('\n');
+  const urls = langs.map((code) => `  <url>\n    <loc>${pageUrl(code)}</loc>\n${alternates}\n  </url>`).join('\n');
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+${urls}
+</urlset>
+`);
+});
+
 app.use(express.static(join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     if (/\.(woff2?|ttf|png|jpg|jpeg|svg|ico|webp)$/i.test(filePath)) {
