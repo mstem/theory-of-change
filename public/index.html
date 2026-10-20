@@ -179,7 +179,7 @@
     height: 0.85em;
     background: currentColor;
     vertical-align: -0.08em;
-    margin-right: 2px;
+    margin-inline-end: 2px;
     animation: field-cursor-blink 0.9s step-end infinite;
   }
 
@@ -214,7 +214,8 @@
   .field-word {
     font-weight: 600;
     cursor: text;
-    padding: 0 2px 0 0.2em;
+    padding-block: 0;
+    padding-inline: 0.2em 2px;
     transition: opacity 0.2s ease, max-width 0.25s ease, padding 0.25s ease;
     max-width: 600px;
     overflow: hidden;
@@ -234,7 +235,7 @@
   .suggestions {
     position: absolute;
     top: calc(100% + 6px);
-    left: 0;
+    inset-inline-start: 0;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -341,6 +342,16 @@
     margin: 0 auto;
   }
 
+  /* The diagram is drawn action-on-the-left in app.js. A right-to-left page
+     reads it from the right, so the drawing is mirrored and each label is
+     flipped back around its own centre so the words stay readable. */
+  [dir="rtl"] .diagram-svg { transform: scaleX(-1); }
+  [dir="rtl"] .diagram-svg text {
+    transform: scaleX(-1);
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
   .strength-badge {
     display: inline-flex;
     align-items: center;
@@ -388,10 +399,9 @@
     font-size: 0.95rem;
     color: var(--muted);
     max-width: 520px;
-    margin-left: auto;
-    margin-right: auto;
+    margin-inline: auto;
     line-height: 1.6;
-    text-align: left;
+    text-align: start;
   }
 
   .diagram-summary p + p { margin-top: 0.8rem; }
@@ -472,7 +482,7 @@
   .mechanism-node:not(:last-child)::after {
     content: '';
     position: absolute;
-    left: 13px; /* center of 28px num circle */
+    inset-inline-start: 13px; /* center of 28px num circle */
     top: 28px;
     bottom: -1.5rem;
     width: 2px;
@@ -652,7 +662,7 @@
   .timeline::before {
     content: '';
     position: absolute;
-    left: 80px;
+    inset-inline-start: 80px;
     top: 0; bottom: 0;
     width: 2px;
     background: linear-gradient(to bottom, transparent, var(--border) 8%, var(--border) 92%, transparent);
@@ -672,13 +682,13 @@
   .tl-period {
     flex-shrink: 0;
     width: 64px;
-    text-align: right;
+    text-align: end;
     font-size: 0.7rem;
     font-weight: 700;
     color: var(--muted);
     line-height: 1.3;
     padding-top: 3px;
-    padding-right: 0;
+    padding-inline-end: 0;
     letter-spacing: -0.01em;
   }
 
@@ -693,20 +703,19 @@
     position: relative;
     z-index: 1;
     flex-shrink: 0;
-    margin-left: 0;
-    margin-right: 0;
+    margin-inline: 0;
     align-self: flex-start;
   }
 
   /* nudge: period(64px) + dot centered on spine(72px) => 8px gap */
-  .tl-dot { margin-left: 0; }
+  .tl-dot { margin-inline-start: 0; }
 
   .tl-spacer { flex-shrink: 0; width: 8px; } /* 64 + 8 = 72 = spine left */
 
   /* card to the right */
   .tl-card {
     flex: 1;
-    margin-left: 12px;
+    margin-inline-start: 12px;
     background: #f7eff1;
     border: 1px solid #EAB5BE;
     border-radius: 12px;
@@ -773,10 +782,10 @@
     font-size: 0.92rem;
     background: #F9FAFB;
     border-radius: 10px;
-    border-left: 3px solid var(--y-color);
+    border-inline-start: 3px solid var(--y-color);
     line-height: 1.55;
     overflow: hidden;
-    transition: background 0.15s, border-left-color 0.15s;
+    transition: background 0.15s, border-inline-start-color 0.15s;
   }
 
   .questions-list li.answered { background: #FDF9FF; }
@@ -864,7 +873,7 @@
     color: var(--muted);
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    margin-left: 0.5rem;
+    margin-inline-start: 0.5rem;
     vertical-align: middle;
   }
   .assumptions-list {
@@ -947,8 +956,7 @@
     margin: 1rem auto;
     max-width: 860px;
     box-sizing: border-box;
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
+    padding-inline: 1.5rem;
   }
 
   .error-banner[hidden] { display: none; }
@@ -1011,6 +1019,9 @@
 
   .results-actions--end { margin: 2.5rem 0 0; }
 
+  /* "Back" points the other way on a right-to-left page. */
+  [dir="rtl"] .reset-arrow { display: inline-block; transform: scaleX(-1); }
+
   .lang-select {
     appearance: none;
     -webkit-appearance: none;
@@ -1019,6 +1030,7 @@
     background-repeat: no-repeat;
     background-position: right 0.85rem center;
   }
+  [dir="rtl"] .lang-select { background-position: left 0.85rem center; }
   .lang-select:disabled { opacity: 0.5; cursor: default; }
 
   /* The analysis can be in a right-to-left language on a left-to-right page.
@@ -1111,7 +1123,7 @@
   .share-native-btn:hover { transform: translateY(-1px); }
   .share-copy-btn.copied { background: var(--strong); }
 
-  .share-native-btn { display: none; margin-right: 0.5rem; }
+  .share-native-btn { display: none; margin-inline-end: 0.5rem; }
   .share-native-btn.available { display: inline-flex; }
 
   .share-modal-actions {
@@ -1460,8 +1472,8 @@
     /* Year label sits above the card, full width */
     .tl-period {
       width: auto;
-      text-align: left;
-      padding-right: 0;
+      text-align: start;
+      padding-inline-end: 0;
       padding-bottom: 0.35rem;
     }
 
@@ -1470,7 +1482,7 @@
     .tl-dot { display: none; }
 
     /* Card takes the full available width */
-    .tl-card { margin-left: 0; }
+    .tl-card { margin-inline-start: 0; }
 
     /* Show the between-item connector */
     .tl-connector {
@@ -1496,8 +1508,7 @@
   .hero-footer {
     position: absolute;
     bottom: 1.5rem;
-    left: 0;
-    right: 0;
+    inset-inline: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1551,7 +1562,7 @@
     border-right: 1.5px solid currentColor;
     border-bottom: 1.5px solid currentColor;
     transform: translateY(-0.1em) rotate(45deg);
-    margin-left: 0.15rem;
+    margin-inline-start: 0.15rem;
   }
   .page-langs[open] summary::after { transform: translateY(0.1em) rotate(-135deg); }
   .page-langs summary:hover,
@@ -1572,7 +1583,7 @@
     border-radius: 8px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.10);
     z-index: 100;
-    text-align: left;
+    text-align: start;
   }
   .page-langs__menu a,
   .page-langs__menu [aria-current] {

@@ -12,8 +12,10 @@ process.env.CACHE_DIR = TMP_CACHE_DIR;
 
 // A stand-in right-to-left translation, written before the server is imported.
 // It only has to be complete and valid; the words are irrelevant to the tests.
+// Persian, a right-to-left language this page is not translated into, so the
+// committed Arabic bundle never shadows the generated stub.
 const reference = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'locales', 'en.json'), 'utf8'));
-const STUB_LOCALE = 'ar';
+const STUB_LOCALE = 'fa';
 const STUB_TITLE = 'STUB TITLE RTL';
 mkdirSync(join(TMP_CACHE_DIR, 'locales'), { recursive: true });
 writeFileSync(
@@ -384,7 +386,7 @@ test('a translated bundle changes the language, direction and title', async () =
 test('a region is dropped when choosing the bundle', async () => {
   // pt-PT and pt-BR share one translation, which is what bounds the number of
   // bundles to languages rather than to tags.
-  const res = await fetch(`${BASE}/`, { headers: { 'Accept-Language': `${STUB_LOCALE}-EG,${STUB_LOCALE};q=0.9` } });
+  const res = await fetch(`${BASE}/`, { headers: { 'Accept-Language': `${STUB_LOCALE}-IR,${STUB_LOCALE};q=0.9` } });
   assert.match(await res.text(), new RegExp(`<html lang="${STUB_LOCALE}" dir="rtl">`));
 });
 
@@ -551,6 +553,9 @@ test('the page carries the suggestion lists in its own language', async () => {
   const pt = await pageData('pt');
   assert.equal(pt.suggestions['suggestions.x'][0], 'organizar ação comunitária');
   assert.equal(pt.suggestions['suggestions.y'][0], 'estabilidade climática');
+  const ar = await pageData('ar');
+  assert.equal(ar.suggestions['suggestions.x'][0], 'تنظيم العمل المجتمعي');
+  assert.equal(ar.suggestions['suggestions.y'][0], 'استقرار المناخ');
   const en = await pageData('en');
   assert.equal(en.suggestions['suggestions.x'][0], 'organizing community action');
 });
