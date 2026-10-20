@@ -495,8 +495,19 @@ function analyzeCacheKey(action, change, scope, clarification = '', lang = DEFAU
 // into multi-minute waits.
 function groundedSearchTool(scope) {
   const tool = { type: 'web_search_20250305', name: 'web_search', max_uses: ANALYZE_SEARCH_MAX_USES + (scope ? 1 : 0) };
-  if (scope?.code) tool.user_location = { type: 'approximate', country: scope.code };
+  if (scope?.code && !unsupportedSearchCountries.has(scope.code)) tool.user_location = { type: 'approximate', country: scope.code };
   return tool;
+}
+
+// The search API rejects some valid ISO codes with a 400 before it runs anything,
+// and publishes no list of which. A rejected code is remembered for the life of
+// the process, so only the first run with it pays for the retry.
+const unsupportedSearchCountries = new Set();
+
+function unsupportedSearchCountry(err) {
+  if (err?.status !== 400) return null;
+  const message = err?.error?.error?.message ?? err?.message ?? '';
+  return message.match(/Country code ([A-Z]{2}) is not supported/)?.[1] ?? null;
 }
 
 // The analysis runs as two calls. The frame call has no tools and writes what the
@@ -754,7 +765,19 @@ app.post('/api/analyze', analyzeLimiter, async (req, res) => {
       closeIfBothFinished();
     });
 
-    stream.on('error', (err) => failCall(name, err));
+    stream.on('error', (err) => {
+      // The rejection arrives before any text, so the call can rerun without the
+      // location hint and the reader still gets the evidence, with the place kept
+      // in the prompt.
+      const country = unsupportedSearchCountry(err);
+      if (country && !text[name] && options.tools?.[0]?.user_location?.country === country) {
+        unsupportedSearchCountries.add(country);
+        console.warn(`analyze ${name}: search rejected country ${country}, retrying without user_location`);
+        runCall(name, { ...options, tools: [groundedSearchTool(scope)] });
+        return;
+      }
+      failCall(name, err);
+    });
   }
 
   try {
@@ -1256,4 +1279,4 @@ if (isEntryPoint) {
   app.listen(PORT, () => console.log(`Theory of Change running at http://localhost:${PORT}`));
 }
 
-export { app, analyzePrompts, parseCardTranslations, translateCards, cardCache, visitorCountry, scopeFromPlace, analyzeCacheKey, groundedSearchTool, serializeStreams, parseStreams, formatDuration, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, reserveSpend, settleSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
+export { app, analyzePrompts, parseCardTranslations, translateCards, cardCache, visitorCountry, scopeFromPlace, analyzeCacheKey, groundedSearchTool, unsupportedSearchCountry, unsupportedSearchCountries, serializeStreams, parseStreams, formatDuration, buildCsp, inlineScriptHashes, serializeJsonBlock, renderIndex, escapeHtml, parseSourceUrl, textFromContent, isConclusiveLookup, searchErrors, searchResultCount, lookupCost, lookupTtl, webSearchUsage, isCompleteAnalysis, analysisCost, recordSpend, reserveSpend, settleSpend, spentToday, spentOnLookupsToday, budgetExhausted, DAILY_BUDGET_USD, DAILY_LOOKUP_BUDGET_USD, cacheGet, cacheSet, cache, loadCacheFromDisk, CACHE_MAX, CACHE_TTL_MS };
