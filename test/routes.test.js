@@ -599,3 +599,30 @@ test('a saved language nobody has installed falls back to the browser header', a
   const res = await fetch(`${BASE}/`, { headers: { 'Accept-Language': 'pt-PT', Cookie: 'locale_pref=lang%3Dxx' } });
   assert.match(await res.text(), /<html lang="pt"/);
 });
+
+// ─── Crawlers ─────────────────────────────────────────────────────────────────
+
+test('robots.txt keeps crawlers off the API and points at the sitemap', async () => {
+  const res = await fetch(`${BASE}/robots.txt`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /^text\/plain/);
+  const body = await res.text();
+  assert.match(body, /^User-agent: \*$/m);
+  // A crawler rendering a shared link would otherwise run a paid analysis.
+  assert.match(body, /^Disallow: \/api\/$/m);
+  assert.match(body, /^Sitemap: https:\/\/theory\.evensfoundation\.eu\/sitemap\.xml$/m);
+});
+
+test('sitemap.xml lists the page once per language, each naming the others', async () => {
+  const res = await fetch(`${BASE}/sitemap.xml`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /^application\/xml/);
+  const body = await res.text();
+  assert.match(body, /^<\?xml version="1.0" encoding="UTF-8"\?>/);
+  assert.match(body, /<loc>https:\/\/theory\.evensfoundation\.eu\/<\/loc>/);
+  assert.match(body, /<loc>https:\/\/theory\.evensfoundation\.eu\/\?lang=pt<\/loc>/);
+  assert.match(body, /hreflang="pt" href="https:\/\/theory\.evensfoundation\.eu\/\?lang=pt"/);
+  assert.match(body, /hreflang="x-default" href="https:\/\/theory\.evensfoundation\.eu\/"/);
+  const urls = body.match(/<url>/g).length;
+  assert.equal(body.match(/hreflang="x-default"/g).length, urls);
+});
