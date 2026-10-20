@@ -13,11 +13,11 @@ Matt cannot read most of the languages this page ships in, and no native reviewe
 
 | | Rule |
 |---|---|
-| Register | es "usted", fr "vous", de "Sie", it "Lei", pt "a sua", nl "je", pl impersonal forms. Other languages: ask Matt once, then add the row here. |
+| Register | es "usted", fr "vous", de "Sie", it "Lei", pt "a sua", nl "je", pl impersonal forms, ar verbal nouns (masdar) for buttons and labels with plural "أنتم" where a sentence must say "you" (Matt, 2026-10-20). Other languages: ask Matt once, then add the row here. |
 | Gender | Neutral wording where the language allows it ("pessoas imigrantes", "direitos laborais"). Otherwise alternate feminine and masculine across entries. No gender star, no "·e·", no "@" or "x" endings. |
-| Region | The variant of the European country (pt-PT, es-ES). Every regional browser shares the one bundle. |
+| Region | The variant of the European country (pt-PT, es-ES). Every regional browser shares the one bundle. Arabic has no such country: Modern Standard Arabic, with usage checked in pan-Arab press and UN Arabic. |
 | Slots | `{X}` is the action someone takes ("organizing community action"), `{Y}` the change it is meant to cause ("climate stability"), `{Z}` the place. The headline asks how X will create Y in Z. |
-| Arabic and other right-to-left languages | On hold until Matt names a native reviewer. |
+| Arabic and other right-to-left languages | Not held for a reviewer (Matt, 2026-10-20). The check below plus an RTL render pass: the page's physical left/right CSS must be converted to logical properties first. |
 | Writing rules | No em dashes, as in `pt.json`. |
 
 ## Files a language needs
