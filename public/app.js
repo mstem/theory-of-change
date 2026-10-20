@@ -1564,6 +1564,13 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
+// The same reset at the end of the results, for a reader who has scrolled through
+// the workbook. Clicking the top button runs every reset handler, wherever each
+// was registered.
+document.getElementById('reset-btn-bottom').addEventListener('click', () => {
+  document.getElementById('reset-btn').click();
+});
+
 // Enter submits; Shift+Enter inserts a newline (default textarea behavior)
 [fieldX, fieldY, fieldZ].filter(Boolean).forEach(f => f.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
