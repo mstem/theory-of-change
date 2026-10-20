@@ -1008,6 +1008,8 @@
   .reset-btn:hover,
   .action-btn:hover { border-color: var(--text); color: var(--text); }
 
+  .results-actions--end { margin: 2.5rem 0 0; }
+
   .lang-select {
     appearance: none;
     -webkit-appearance: none;
@@ -1832,6 +1834,10 @@
       </div>
     </form>
     <p class="feedback-thanks" data-i18n="feedback.thanks">Thanks — your feedback is on its way. We read every note.</p>
+  </div>
+
+  <div class="results-actions results-actions--end">
+    <button class="reset-btn" id="reset-btn-bottom" type="button"><span class="reset-arrow" aria-hidden="true">←</span> <span data-i18n="results.reset">Try another theory</span></button>
   </div>
 
   <!-- Footer -->

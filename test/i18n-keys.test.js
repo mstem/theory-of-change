@@ -157,3 +157,11 @@ test('the markup still holds the three slots the renderer moves', () => {
     assert.ok(markup.includes(`id="${id}"`), `#${id} should still be in the markup`);
   }
 });
+
+test('the results end with a second "Try another theory" that resets like the first', () => {
+  const bottom = markup.match(/<button[^>]*id="reset-btn-bottom"[^>]*>[\s\S]*?<\/button>/);
+  assert.ok(bottom, '#reset-btn-bottom should be in the markup');
+  assert.match(bottom[0], /data-i18n="results\.reset"/);
+  assert.ok(markup.indexOf('id="reset-btn-bottom"') > markup.indexOf('id="feedback"'), 'it should sit after the feedback form');
+  assert.match(script, /getElementById\('reset-btn-bottom'\)[\s\S]{0,120}getElementById\('reset-btn'\)\.click\(\)/);
+});
