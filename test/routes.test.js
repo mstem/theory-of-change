@@ -626,3 +626,45 @@ test('sitemap.xml lists the page once per language, each naming the others', asy
   const urls = body.match(/<url>/g).length;
   assert.equal(body.match(/hreflang="x-default"/g).length, urls);
 });
+
+// ─── Share link previews ──────────────────────────────────────────────────────
+
+const metaContent = (html, attr, name) =>
+  html.match(new RegExp(`<meta ${attr}="${name}" content="([^"]*)">`))?.[1];
+
+async function page(query, lang = 'en') {
+  const res = await fetch(`${BASE}/${query}`, { headers: { 'accept-language': lang } });
+  return res.text();
+}
+
+test('a share link previews with the theory it tested', async () => {
+  const html = await page('?a=occupying+squares&c=more+accessible+housing&p=Portugal');
+  const title = 'How will occupying squares create more accessible housing in Portugal?';
+  assert.equal(metaContent(html, 'property', 'og:title'), title);
+  assert.equal(metaContent(html, 'name', 'twitter:title'), title);
+  // LinkedIn and Facebook read their tags from og:url, so it must be the link itself.
+  assert.equal(metaContent(html, 'property', 'og:url'), 'https://theory.evensfoundation.eu/?a=occupying+squares&amp;c=more+accessible+housing&amp;p=Portugal');
+});
+
+test('a share link left at the world previews with no place', async () => {
+  const title = 'How will occupying squares create more accessible housing?';
+  assert.equal(metaContent(await page('?a=occupying+squares&c=more+accessible+housing'), 'property', 'og:title'), title);
+  assert.equal(metaContent(await page('?a=occupying+squares&c=more+accessible+housing&p=the+world'), 'property', 'og:title'), title);
+});
+
+test('a share link previews in the language the page is served in', async () => {
+  const html = await page('?a=ocupar+pra%C3%A7as&c=mais+habita%C3%A7%C3%A3o&lang=pt', 'pt');
+  assert.equal(metaContent(html, 'property', 'og:title'), 'Como é que ocupar praças vai criar mais habitação?');
+});
+
+test('typed text in a share title is escaped', async () => {
+  const html = await page('?a=%3Cscript%3Ex%3C%2Fscript%3E&c=%22quoted%22');
+  assert.match(metaContent(html, 'property', 'og:title'), /^How will &lt;script&gt;x&lt;\/script&gt; create &quot;quoted&quot;\?$/);
+  assert.doesNotMatch(html, /<script>x<\/script>/);
+});
+
+test('the plain page and a half-filled link keep the generic preview', async () => {
+  const generic = metaContent(await page(''), 'property', 'og:title');
+  assert.equal(metaContent(await page('?a=only+an+action'), 'property', 'og:title'), generic);
+  assert.equal(metaContent(await page(''), 'property', 'og:url'), 'https://theory.evensfoundation.eu/');
+});

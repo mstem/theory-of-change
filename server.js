@@ -233,8 +233,42 @@ app.get(['/', '/index.html'], (req, res, next) => {
   res.setHeader('Vary', 'Accept-Language, Cookie');
   res.setHeader('Content-Type', 'text/html; charset=UTF-8');
   res.setHeader('Cache-Control', 'no-cache');
-  res.send(renderIndex(key));
+  res.send(withSharePreview(renderIndex(key), key, req.query));
 });
+
+// A shared link previews as the theory it tested, in the page's own headline
+// wording, so people see whose theory it is before they open it. og:url points
+// at the link itself because LinkedIn and Facebook read their tags from og:url,
+// and the bare homepage would hand them the generic title back. Previewers read
+// only the HTML and never run app.js, so none of this starts an analysis.
+function withSharePreview(html, key, query) {
+  const field = (name, max) => (typeof query[name] === 'string' ? query[name].replace(/\s+/g, ' ').trim().slice(0, max) : '');
+  const action = field('a', MAX_INPUT_LEN);
+  const change = field('c', MAX_INPUT_LEN);
+  if (!action || !change) return html;
+  const place = field('p', MAX_PLACE_LEN);
+
+  const reference = referenceBundle();
+  const bundle = getBundle(key) ?? reference;
+  const t = (name) => bundle[name] ?? reference[name] ?? '';
+  // Left at the world, the question reads better without a place at all. Every
+  // template keeps the place on its own line, so that line goes up to {Z} and
+  // its closing punctuation stays: "...create {Y}\nin {Z}?" becomes "...create {Y}?".
+  const global = !place || place.toLowerCase() === t('headline.worldDefault').toLowerCase();
+  let template = t('headline.template');
+  if (global) template = template.replace(/(^|\n)[^\n]*\{Z\}/, '');
+  const values = { X: action, Y: change, Z: place };
+  const title = template.replace(/\{([XYZ])\}/g, (_, slot) => values[slot]).replace(/\s+/g, ' ').trim();
+
+  const params = new URLSearchParams({ a: action, c: change });
+  if (!global) params.set('p', place);
+  const url = `${SITE_URL}/?${params}`;
+
+  return html
+    .replace(/<meta property="og:title" content="[^"]*">/, () => `<meta property="og:title" content="${escapeHtml(title)}">`)
+    .replace(/<meta name="twitter:title" content="[^"]*">/, () => `<meta name="twitter:title" content="${escapeHtml(title)}">`)
+    .replace(/<meta property="og:url" content="[^"]*">/, () => `<meta property="og:url" content="${escapeHtml(url)}">`);
+}
 
 // For Search Console. The API is off limits because a crawler that renders a
 // shared link (?a=...&c=...) would run a paid analysis from the page's script.
