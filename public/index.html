@@ -241,6 +241,9 @@
     list-style: none;
     z-index: 100;
     width: 100%;
+    /* The list takes the field's width, and an emptied field is 0 wide, which
+       would squeeze the list into a 2px line under the headline. */
+    min-width: 200px;
     overflow: hidden;
     display: none;
   }
@@ -265,9 +268,6 @@
   }
 
   @media (max-width: 640px) {
-    .suggestions {
-      min-width: 200px;
-    }
     .suggestions li {
       white-space: normal;
       overflow: visible;
